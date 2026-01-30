@@ -18,7 +18,7 @@ services:
   web:
     build: .
     container_name: learnlog_web
-    command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client manage.py runserver 0.0.0.0:8000 --noreload --nothreading
+    command: python -m debugpy --listen 0.0.0.0:5678 manage.py runserver 0.0.0.0:8000 --nothreading
     volumes:
       - .:/app
     ports:
