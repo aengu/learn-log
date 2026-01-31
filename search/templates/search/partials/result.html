@@ -1,0 +1,121 @@
+<!-- 결과 카드 -->
+<div class="card bg-base-100 shadow-xl">
+    <!-- 헤더 -->
+    <div class="card-body pb-0">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <h2 class="card-title">{{ log.query }}</h2>
+                <p class="text-sm text-base-content/60 mt-1">
+                    {{ log.created_at|date:"Y년 n월 j일 H:i" }}
+                </p>
+            </div>
+            <button
+                class="btn btn-sm btn-outline"
+                onclick="copyMarkdown()"
+                id="copy-btn"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                마크다운 복사
+            </button>
+        </div>
+
+        <!-- 태그 -->
+        {% if log.tags.exists %}
+        <div class="flex flex-wrap gap-2 mt-3">
+            {% for tag in log.tags.all %}
+            <span class="badge badge-primary badge-outline">{{ tag.name }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="divider my-0 px-8"></div>
+
+    <!-- 마크다운 컨텐츠 -->
+    <div class="card-body pt-4">
+        <div class="markdown-body" id="markdown-content"></div>
+        <!-- 마크다운 원문 (복사용 & 렌더링용, 숨김) -->
+        <textarea id="markdown-raw" class="hidden">{{ log.markdown_content }}</textarea>
+    </div>
+
+    <!-- 참고 자료 -->
+    {% if log.references.exists %}
+    <div class="bg-base-200 rounded-b-2xl px-8 py-6">
+        <h3 class="font-semibold mb-3">참고 자료</h3>
+        <ul class="space-y-2">
+            {% for ref in log.references.all %}
+            <li>
+                <a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer"
+                   class="link link-hover flex items-center gap-2 text-sm">
+                    <span class="badge badge-sm badge-ghost">{{ ref.get_source_type_display }}</span>
+                    <span class="flex-1 truncate">{{ ref.title }}</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// 마크다운 렌더링
+(function() {
+    const rawMarkdown = document.getElementById('markdown-raw').value;
+    const contentDiv = document.getElementById('markdown-content');
+
+    // marked 설정
+    marked.setOptions({
+        breaks: true,
+        gfm: true
+    });
+
+    // 마크다운을 HTML로 변환
+    contentDiv.innerHTML = marked.parse(rawMarkdown);
+
+    // "참고 자료" 섹션 제거 (h2 태그부터 끝까지)
+    const headings = contentDiv.querySelectorAll('h2');
+    headings.forEach((h2) => {
+        if (h2.textContent.includes('참고 자료') || h2.textContent.includes('참고자료')) {
+            // h2와 그 이후 모든 형제 요소 제거
+            let sibling = h2.nextElementSibling;
+            while (sibling) {
+                const next = sibling.nextElementSibling;
+                sibling.remove();
+                sibling = next;
+            }
+            h2.remove();
+        }
+    });
+
+    // 코드 하이라이팅 적용
+    contentDiv.querySelectorAll('pre code').forEach((block) => {
+        hljs.highlightElement(block);
+    });
+})();
+
+// 마크다운 복사 함수
+function copyMarkdown() {
+    const markdown = document.getElementById('markdown-raw').value;
+    navigator.clipboard.writeText(markdown).then(() => {
+        const btn = document.getElementById('copy-btn');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            복사됨!
+        `;
+        btn.classList.add('btn-success');
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.classList.remove('btn-success');
+        }, 2000);
+    });
+}
+</script>
+    

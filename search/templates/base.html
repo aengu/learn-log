@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Learn Log{% endblock %}</title>
+
+    <!-- Tailwind CSS + DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+
+    <!-- Highlight.js for code highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        /* Markdown 스타일링 */
+        .markdown-body { line-height: 1.8; }
+        .markdown-body h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid oklch(var(--bc) / 0.2);
+        }
+        .markdown-body h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 1.25rem;
+            margin-bottom: 0.75rem;
+        }
+        .markdown-body p { margin-bottom: 1rem; }
+        .markdown-body ul, .markdown-body ol {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+        }
+        .markdown-body li { margin-bottom: 0.25rem; }
+        .markdown-body pre {
+            background: #1f2937;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+        .markdown-body code {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.875rem;
+        }
+        .markdown-body :not(pre) > code {
+            background: oklch(var(--b2));
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            color: oklch(var(--er));
+        }
+        .markdown-body table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+        .markdown-body th, .markdown-body td {
+            border: 1px solid oklch(var(--bc) / 0.2);
+            padding: 0.75rem;
+            text-align: left;
+        }
+        .markdown-body th {
+            background: oklch(var(--b2));
+            font-weight: 600;
+        }
+        .markdown-body a {
+            color: oklch(var(--p));
+            text-decoration: underline;
+        }
+        .markdown-body blockquote {
+            border-left: 4px solid oklch(var(--p));
+            padding-left: 1rem;
+            margin: 1rem 0;
+            opacity: 0.8;
+        }
+
+        /* HTMX 로딩 인디케이터 */
+        .htmx-request .htmx-indicator { display: inline-flex; }
+        .htmx-indicator { display: none; }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-base-200">
+    {% block content %}{% endblock %}
+
+    <script>
+        // HTMX 요청 후 코드 하이라이팅 적용
+        document.body.addEventListener('htmx:afterSwap', function(event) {
+            event.detail.target.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

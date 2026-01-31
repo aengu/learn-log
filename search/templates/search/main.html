@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}Learn Log - AI 개발 지식 베이스{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex flex-col">
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-sm">
+        <div class="flex-1">
+            <a class="btn btn-ghost text-xl">Learn Log</a>
+        </div>
+        <div class="flex-none">
+            <span class="text-sm text-base-content/60">AI 기반 개발 지식 아카이브</span>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 container mx-auto max-w-4xl px-4 py-8">
+        <!-- Search Form Card -->
+        <div class="card bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title text-lg">개발 관련 질문을 입력하세요</h2>
+                <form
+                    hx-post="{% url 'search:query_api' %}"
+                    hx-target="#result-container"
+                    hx-swap="innerHTML"
+                    hx-indicator="#loading-indicator"
+                >
+                    {% csrf_token %}
+                    <div class="join w-full mt-2">
+                        <input
+                            type="text"
+                            name="query"
+                            placeholder="예: docker bridge network와 host network 차이"
+                            class="input input-bordered join-item flex-1"
+                            required
+                            minlength="5"
+                        />
+                        <button type="submit" class="btn btn-primary join-item">
+                            <span class="htmx-indicator" id="loading-indicator">
+                                <span class="loading loading-spinner loading-sm"></span>
+                            </span>
+                            <span>검색</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Result Container -->
+        <div id="result-container">
+            <!-- HTMX가 여기에 결과를 삽입 -->
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer footer-center p-4 bg-base-100 text-base-content border-t">
+        <aside>
+            <p>Learn Log - 개발자의 학습을 기록하다</p>
+        </aside>
+    </footer>
+</div>
+{% endblock %}
