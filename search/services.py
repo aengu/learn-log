@@ -3,6 +3,8 @@ from tavily import TavilyClient
 from django.conf import settings
 from django.utils.text import slugify
 from .models import LearningLog, Tag, Reference
+from .domains import get_domains_for_query, is_official_doc
+
 
 """
 todo
@@ -86,40 +88,48 @@ class LearnlogService:
     def _determine_source_type(self, url):
         """
         URL을 분석해서 출처 유형 결정
+        - tech_domains.py의 공식 문서 도메인 목록 활용
         """
         url_lower = url.lower()
-        
+
         if 'stackoverflow.com' in url_lower:
             return 'stackoverflow'
         elif 'github.com' in url_lower:
             return 'github'
-        elif any(domain in url_lower for domain in ['docs.', 'documentation', 'doc.']):
+        elif is_official_doc(url):
             return 'official'
-        elif any(domain in url_lower for domain in ['blog', 'medium.com', 'dev.to']):
+        elif any(keyword in url_lower for keyword in ['blog', 'medium.com', 'dev.to']):
             return 'blog'
         else:
             return 'other'
+
     
     def search_official_docs(self, query):
         """
         Tavily API로 공식 문서 검색
+        - 질문에서 기술 스택을 추출하여 해당 공식 문서 도메인으로 검색
         """
+        # 질문에서 관련 도메인 키워드 추출
+        domains = get_domains_for_query(query)
+        print(f"  검색 도메인: {domains}")
+
         try:
-            results = self.tavily_client.search(
-                query=query,
-                search_depth="advanced",
-                max_results=5,
-                include_domains=[
-                    "docs.docker.com",
-                    "docs.python.org",
-                    "docs.djangoproject.com",
-                    "github.com",
-                ]
-            )
+            search_params = {
+                'query': query,
+                'search_depth': 'advanced',
+                'max_results': 5,
+            }
+
+            # 도메인이 있으면 include_domains 추가
+            if domains:
+                search_params['include_domains'] = domains
+
+            results = self.tavily_client.search(**search_params)
             return results
         except Exception as e:
-            print(f"❌ 검색 오류: {e}")
+            print(f"검색 오류: {e}")
             return {'results': []}
+
     
     def generate_answer(self, query, search_results):
         """
