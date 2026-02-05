@@ -70,6 +70,7 @@ TECH_DOCS_MAP = {
     '노드': ['nodejs.org/docs'],
     'express': ['expressjs.com'],
     '익스프레스': ['expressjs.com'],
+    'htmx': ['htmx.org'],
 
     # 프레임워크 - Java
     'spring': ['docs.spring.io'],

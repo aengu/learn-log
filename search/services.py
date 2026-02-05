@@ -8,11 +8,13 @@ from .domains import get_domains_for_query, is_official_doc
 
 """
 todo
-- include_domain 자동 변경
+- [완료] include_domain 자동 변경
 - groq temperature 수치 조정
-- query 질의 후 progress bar + log
+- [완료] query 질의 후 progress bar + log
 - 참고자료에 github 뺄까...
 - 태그 계층화 (ex: database-postgresql-isolation_level)
+- groq, tavily 프롬프트 수정 기능 (글자 수, 요구조건 등)
+- sse 비동기로 변경
 """
 
 class LearnlogService:
@@ -30,59 +32,55 @@ class LearnlogService:
     
     def process_query(self, user_query):
         """
-        메인 처리 로직
+        메인 처리 로직 (HTMX용 - 동기 처리)
+        SSE 스트리밍은 QuerySSEView에서 각 메서드를 직접 호출
         """
-        print(f"[1/5] 📝 질문 받음: {user_query}")
-        
         # 1. 웹 검색
         search_results = self.search_official_docs(user_query)
-        print(f"[2/5] 🔍 검색 완료: {len(search_results.get('results', []))}개 결과")
-        
+
         # 2. AI 답변 생성
         ai_answer = self.generate_answer(user_query, search_results)
-        print(f"[3/5] 🤖 AI 답변 생성 완료 ({len(ai_answer)}자)")
-        
+
         # 3. 태그 자동 추출
         tag_names = self.extract_tags(user_query, ai_answer)
-        print(f"[4/5] 🏷️  태그 추출 완료: {tag_names}")
-        
+
         # 4. 마크다운 변환
         markdown = self.convert_to_markdown(user_query, ai_answer, search_results)
-        print(f"[5/5] 📄 마크다운 변환 완료 ({len(markdown)}자)")
-        
+
         # 5. DB 저장
-        # 5-1. LearningLog 생성
+        return self.save_learning_log(user_query, ai_answer, markdown, search_results, tag_names)
+
+    def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names):
+        """
+        LearningLog 및 관련 데이터 DB 저장
+        """
+        # LearningLog 생성
         log = LearningLog.objects.create(
-            query=user_query,
+            query=query,
             ai_response=ai_answer,
             markdown_content=markdown,
         )
-        
-        # 5-2. Reference 생성 및 연결
+
+        # Reference 생성 및 연결
         for result in search_results.get('results', []):
-            ref, created = Reference.objects.get_or_create(
+            ref, _ = Reference.objects.get_or_create(
                 url=result.get('url', ''),
                 defaults={
                     'title': result.get('title', 'Untitled'),
-                    'excerpt': result.get('content', '')[:500],  # 500자로 제한
+                    'excerpt': result.get('content', '')[:500],
                     'source_type': self._determine_source_type(result.get('url', '')),
                 }
             )
             log.references.add(ref)
-            if created:
-                print(f"  📚 새 레퍼런스 생성: {ref.title}")
-        
-        # 5-3. Tag 생성 및 연결
+
+        # Tag 생성 및 연결
         for tag_name in tag_names:
-            tag, created = Tag.objects.get_or_create(
+            tag, _ = Tag.objects.get_or_create(
                 name=tag_name,
                 defaults={'slug': slugify(tag_name)}
             )
             log.tags.add(tag)
-            if created:
-                print(f"  🏷️  새 태그 생성: {tag.name}")
-        
-        print(f"✅ 저장 완료! ID: {log.id}")
+
         return log
     
     def _determine_source_type(self, url):
