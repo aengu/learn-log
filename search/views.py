@@ -1,16 +1,18 @@
 import json
 from django.shortcuts import render
 from django.views import View
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, HttpResponse
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.core.paginator import Paginator
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
 from .services import LearnlogService
 from .serializers import LearningLogDetailSerializer, QueryInputSerializer
+from .models import LearningLog
 
 class MainPageView(View):
     """
@@ -151,3 +153,42 @@ class QuerySSEView(View):
     def _sse_event(self, event_type, data):
         """SSE 이벤트 포맷으로 변환"""
         return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    
+
+class LogListView(View):
+    """학습로그 리스트 페이지"""
+    def get(self, request):
+        logs = LearningLog.objects.prefetch_related('tags').order_by('-created_at')
+        paginator = Paginator(logs, 12)
+        page = paginator.get_page(1)
+        
+        return render(request, 'search/list.html', {
+            'logs': page,
+            'has_next': page.has_next(),
+            'next_page': 2,
+        })
+
+
+class LogListAPIView(View):
+    """무한스크롤용 API - HTML 조각 반환"""
+    def get(self, request):
+        page_num = int(request.GET.get('page', 1))
+        logs = LearningLog.objects.prefetch_related('tags').order_by('-created_at')
+        paginator = Paginator(logs, 12)
+        page = paginator.get_page(page_num)
+        
+        return render(request, 'search/partials/log_cards.html', {
+            'logs': page,
+            'has_next': page.has_next(),
+            'next_page': page_num + 1,
+        })
+
+
+class LogDetailAPIView(View):
+    """학습로그 상세 - 모달용 HTML 반환"""
+    def get(self, request, pk):
+        try:
+            log = LearningLog.objects.prefetch_related('tags', 'references').get(pk=pk)
+            return render(request, 'search/partials/log_detail_modal.html', {'log': log})
+        except LearningLog.DoesNotExist:
+            return HttpResponse('<div class="alert alert-error">로그를 찾을 수 없습니다.</div>')

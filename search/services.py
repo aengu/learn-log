@@ -14,7 +14,7 @@ todo
 - 참고자료에 github 뺄까...
 - 태그 계층화 (ex: database-postgresql-isolation_level)
 - groq, tavily 프롬프트 수정 기능 (글자 수, 요구조건 등)
-- sse 비동기로 변경
+- [진행중] tag, 학습기록 리스트 페이지
 """
 
 class LearnlogService:

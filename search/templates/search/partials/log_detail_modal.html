@@ -1,0 +1,62 @@
+<h3 class="font-bold text-lg mb-2">{{ log.query }}</h3>
+<p class="text-sm text-base-content/60 mb-4">{{ log.created_at|date:"Y년 n월 j일 H:i" }}</p>
+
+<!-- 태그 -->
+{% if log.tags.exists %}
+<div class="flex flex-wrap gap-2 mb-4">
+    {% for tag in log.tags.all %}
+    <span class="badge badge-primary badge-outline">{{ tag.name }}</span>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="divider"></div>
+
+<!-- 마크다운 컨텐츠 -->
+<div class="markdown-body" id="modal-markdown-content"></div>
+<textarea id="modal-markdown-raw" class="hidden">{{ log.markdown_content }}</textarea>
+
+<!-- 참고 자료 -->
+{% if log.references.exists %}
+<div class="divider"></div>
+<h4 class="font-semibold mb-3">참고 자료</h4>
+<ul class="space-y-2">
+    {% for ref in log.references.all %}
+    <li>
+        <a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer"
+           class="link link-hover flex items-center gap-2 text-sm">
+            <span class="badge badge-sm badge-ghost">{{ ref.get_source_type_display }}</span>
+            <span class="flex-1 truncate">{{ ref.title }}</span>
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<script>
+(function() {
+    const rawMarkdown = document.getElementById('modal-markdown-raw').value;
+    const contentDiv = document.getElementById('modal-markdown-content');
+    
+    marked.setOptions({ breaks: true, gfm: true });
+    contentDiv.innerHTML = marked.parse(rawMarkdown);
+    
+    // 참고 자료 섹션 제거
+    contentDiv.querySelectorAll('h2').forEach((h2) => {
+        if (h2.textContent.includes('참고 자료') || h2.textContent.includes('참고자료')) {
+            let sibling = h2.nextElementSibling;
+            while (sibling) {
+                const next = sibling.nextElementSibling;
+                sibling.remove();
+                sibling = next;
+            }
+            h2.remove();
+        }
+    });
+    
+    // 코드 하이라이팅
+    contentDiv.querySelectorAll('pre code').forEach((block) => {
+        hljs.highlightElement(block);
+    });
+})();
+</script>

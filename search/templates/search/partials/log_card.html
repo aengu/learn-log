@@ -1,0 +1,24 @@
+<div class="log-card card bg-base-100 shadow-xl cursor-pointer hover:shadow-2xl transition-shadow"
+     onclick="openLogDetail({{ log.id }})">
+    <div class="card-body">
+        <h2 class="card-title text-base line-clamp-2">{{ log.query }}</h2>
+        <p class="text-sm text-base-content/60 line-clamp-2">
+            {{ log.ai_response|truncatechars:100 }}
+        </p>
+        
+        {% if log.tags.exists %}
+        <div class="flex flex-wrap gap-1 mt-2">
+            {% for tag in log.tags.all|slice:":3" %}
+            <span class="badge badge-sm badge-outline">{{ tag.name }}</span>
+            {% endfor %}
+            {% if log.tags.count > 3 %}
+            <span class="badge badge-sm badge-ghost">+{{ log.tags.count|add:"-3" }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        <div class="card-actions justify-end mt-2">
+            <span class="text-xs text-base-content/40">{{ log.created_at|date:"n/j" }}</span>
+        </div>
+    </div>
+</div>
