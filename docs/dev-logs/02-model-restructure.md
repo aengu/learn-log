@@ -238,28 +238,153 @@ search/
 
 > **커밋**: [`bb8c09b`](https://github.com/aengu/learn-log/commit/bb8c09bf47fd82de0694727b7293465d5246ab53) feat: 기술 스택별 검색 도메인 자동 매핑 및 출처 판단 개선
 
-`search_official_docs()`에서 도메인이 4개로 하드코딩되어 있었다:
+#### include_domains란?
+
+Tavily API의 `include_domains` 파라미터는 **검색 결과를 특정 도메인으로 제한**하는 필터다. 웹 전체를 검색하되, 결과는 지정된 도메인에서만 가져온다.
+
+```python
+# Tavily API 호출 예시
+results = tavily_client.search(
+    query="Docker 네트워크 bridge와 host 차이",
+    include_domains=["docs.docker.com", "github.com"]  # 이 도메인 결과만 반환
+)
+```
+
+이 프로젝트에서 `include_domains`를 사용하는 이유는, 일반 검색 시 블로그나 비공식 자료가 섞여 들어오는데, **공식 문서 기반으로 학습 로그를 생성**하려면 출처를 신뢰할 수 있는 도메인으로 제한해야 하기 때문이다.
+
+#### 문제: 4개 도메인 하드코딩
+
+```python
+# 변경 전 - search_official_docs()
+results = self.tavily_client.search(
+    query=query,
+    search_depth="advanced",
+    max_results=5,
+    include_domains=[
+        "docs.docker.com",
+        "docs.python.org",
+        "docs.djangoproject.com",
+        "github.com",
+    ]
+)
+```
+
+**비효율적인 이유:**
+
+| 문제 | 예시 |
+| --- | --- |
+| 관련 없는 도메인에서 검색 | "React hooks란?" → `docs.docker.com`에서도 검색 시도 |
+| 지원하지 않는 기술은 결과 없음 | "Kubernetes Pod 구조" → k8s 도메인이 없어서 `github.com` 결과만 반환 |
+| 도메인 추가 시 코드 수정 필요 | 새 기술 추가마다 `services.py`를 직접 수정해야 함 |
+
+예를 들어 "React의 useEffect 사용법"을 질문하면, React 공식 문서(`react.dev`)는 목록에 없으므로 `docs.docker.com`, `docs.python.org` 등 무관한 도메인에서만 검색하게 된다. 결국 유용한 결과는 `github.com`에서 나오는 것뿐이었다.
+
+#### 개선: 질문에서 기술 스택 추출 → 해당 도메인만 검색
+
+`domains.py`에 기술-도메인 매핑(`TECH_DOCS_MAP`)을 분리하고, 질문 텍스트에서 키워드를 매칭해 관련 도메인만 동적으로 선택하도록 변경:
+
+```python
+# domains.py - 기술-도메인 매핑 (60개+ 기술 스택)
+TECH_DOCS_MAP = {
+    'docker': ['docs.docker.com'],
+    '도커': ['docs.docker.com'],
+    'react': ['react.dev'],
+    '리액트': ['react.dev'],
+    'kubernetes': ['kubernetes.io'],
+    'postgresql': ['postgresql.org/docs'],
+    # ... 한글 키워드 포함 60개+
+}
+
+def get_domains_for_query(query: str) -> list[str] | None:
+    """질문에서 키워드를 추출하여 관련 공식 문서 도메인 반환"""
+    query_lower = query.lower()
+    domains = []
+    for tech, urls in TECH_DOCS_MAP.items():
+        if tech in query_lower:
+            domains.extend(urls)
+    domains = list(dict.fromkeys(domains))  # 중복 제거
+    if 'github.com' not in domains:
+        domains.append('github.com')  # GitHub는 항상 포함
+    return domains if domains else None
+```
+
+```python
+# services.py - 변경 후
+def search_official_docs(self, query):
+    domains = get_domains_for_query(query)
+
+    search_params = {
+        'query': query,
+        'search_depth': 'advanced',
+        'max_results': 5,
+    }
+    if domains:
+        search_params['include_domains'] = domains
+    # 매칭되는 기술이 없으면 include_domains 없이 전체 검색
+
+    results = self.tavily_client.search(**search_params)
+    return results
+```
+
+**동작 비교:**
+
+```
+질문: "Docker 네트워크 bridge와 host 차이"
+
+변경 전: include_domains = [docs.docker.com, docs.python.org, docs.djangoproject.com, github.com]
+  → docs.python.org, docs.djangoproject.com은 불필요한 검색
+
+변경 후: include_domains = [docs.docker.com, github.com]
+  → Docker 공식 문서에 집중, 검색 품질 향상
+```
+
+```
+질문: "React useEffect 사용법"
+
+변경 전: include_domains = [docs.docker.com, docs.python.org, docs.djangoproject.com, github.com]
+  → React 도메인 자체가 없어서 유용한 결과 없음
+
+변경 후: include_domains = [react.dev, github.com]
+  → React 공식 문서에서 정확한 결과 반환
+```
+
+### 출처 판별 문자열 매칭 → 도메인 기반 판별
+
+> **커밋**: [`bb8c09b`](https://github.com/aengu/learn-log/commit/bb8c09bf47fd82de0694727b7293465d5246ab53) feat: 기술 스택별 검색 도메인 자동 매핑 및 출처 판단 개선
+
+`_determine_source_type()`은 검색 결과의 URL을 보고 Reference 모델의 `source_type`(공식 문서/블로그/Stack Overflow 등)을 결정하는 메서드다.
+
+기존에는 URL에 `docs.`, `documentation`, `doc.` 같은 문자열이 포함되어 있으면 공식 문서로 판별했다:
 
 ```python
 # 변경 전
-include_domains=[
-    "docs.docker.com",
-    "docs.python.org",
-    "docs.djangoproject.com",
-    "github.com",
-]
+def _determine_source_type(self, url):
+    url_lower = url.lower()
+    # ...
+    elif any(domain in url_lower for domain in ['docs.', 'documentation', 'doc.']):
+        return 'official'
 ```
 
-`domains.py`로 기술-도메인 매핑을 분리하고, 질문에서 기술 스택을 추출해 해당 공식 문서 도메인만 검색하도록 개선:
+**문제점:**
+- `react.dev`, `kubernetes.io`, `go.dev/doc` 같은 URL은 `docs.`가 없어서 `other`로 분류됨
+- 반대로 `docs.some-random-blog.com` 같은 비공식 사이트가 `official`로 분류될 수 있음
+
+`domains.py`에 이미 공식 문서 도메인 목록이 있으므로, 이를 활용하는 `is_official_doc()` 함수로 교체:
 
 ```python
-# 변경 후
-from .domains import get_domains_for_query, is_official_doc
+# domains.py
+def is_official_doc(url: str) -> bool:
+    """TECH_DOCS_MAP에 등록된 도메인이면 공식 문서로 판단"""
+    url_lower = url.lower()
+    official_domains = {d for domains in TECH_DOCS_MAP.values() for d in domains}
+    return any(domain in url_lower for domain in official_domains)
 
-domains = get_domains_for_query(query)  # 질문에서 관련 도메인 자동 추출
-if domains:
-    search_params['include_domains'] = domains
+# services.py - 변경 후
+elif is_official_doc(url):  # 등록된 60개+ 공식 도메인 기반 판별
+    return 'official'
 ```
+
+검색 도메인 매핑과 출처 판별이 `TECH_DOCS_MAP` 하나의 데이터 소스를 공유하게 되어, 새 기술을 추가할 때 `domains.py`만 수정하면 검색과 출처 판별이 동시에 개선된다.
 
 ### process_query 단일 메서드 → save_learning_log 분리
 
@@ -276,6 +401,7 @@ def process_query(self, user_query):
 
 # 변경 후: 저장 로직 분리
 def process_query(self, user_query):
+    """HTMX용 - 동기 처리"""
     search_results = self.search_official_docs(user_query)
     ai_answer = self.generate_answer(user_query, search_results)
     tag_names = self.extract_tags(user_query, ai_answer)
@@ -287,22 +413,4 @@ def save_learning_log(self, query, ai_answer, markdown, search_results, tag_name
     log = LearningLog.objects.create(...)
     # Reference, Tag 연결
     return log
-```
-
-### 출처 판별 문자열 매칭 → 도메인 기반 판별
-
-> **커밋**: [`bb8c09b`](https://github.com/aengu/learn-log/commit/bb8c09bf47fd82de0694727b7293465d5246ab53) feat: 기술 스택별 검색 도메인 자동 매핑 및 출처 판단 개선
-
-`_determine_source_type()`에서 `docs.` 문자열 포함 여부로 공식 문서를 판별하던 방식을 `is_official_doc()` 함수로 교체:
-
-```python
-# 변경 전
-elif any(domain in url_lower for domain in ['docs.', 'documentation', 'doc.']):
-    return 'official'
-
-# 변경 후
-from .domains import is_official_doc
-
-elif is_official_doc(url):  # 등록된 공식 문서 도메인 목록 기반 판별
-    return 'official'
 ```
