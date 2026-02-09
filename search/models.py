@@ -101,3 +101,13 @@ class LearningLog(models.Model):
         """조회수 증가"""
         self.view_count += 1
         self.save(update_fields=['view_count'])
+    
+    @classmethod
+    def get_sorted_queryset(cls, sort='latest'): # 정렬 기본값: 최신순
+        """tag 테이블까지 조인하여 정렬된 쿼리셋을 반환"""
+        base = cls.objects.prefetch_related('tags')
+        if sort == 'views': # 조회순
+            return base.order_by('-view_count', '-created_at')
+        elif sort == 'oldest': # 오래된순
+            return base.order_by('created_at')
+        return base.order_by('-created_at')

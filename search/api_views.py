@@ -126,14 +126,16 @@ class LogListAPIView(View):
     """무한스크롤용 - HTML 조각 반환"""
     def get(self, request):
         page_num = int(request.GET.get('page', 1))
-        logs = LearningLog.objects.prefetch_related('tags').order_by('-created_at')
+        sort = request.GET.get('sort', 'latest')
+        logs = LearningLog.get_sorted_queryset(sort)
         paginator = Paginator(logs, 12)
         page = paginator.get_page(page_num)
-        
+
         return render(request, 'search/partials/log_cards.html', {
             'logs': page,
             'has_next': page.has_next(),
             'next_page': page_num + 1,
+            'current_sort': sort,
         })
 
 
@@ -142,6 +144,7 @@ class LogDetailAPIView(View):
     def get(self, request, pk):
         try:
             log = LearningLog.objects.prefetch_related('tags', 'references').get(pk=pk)
+            log.increment_view_count()
             return render(request, 'search/partials/log_detail_modal.html', {'log': log})
         except LearningLog.DoesNotExist:
             return HttpResponse('<div class="alert alert-error">로그를 찾을 수 없습니다.</div>')

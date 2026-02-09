@@ -1,5 +1,9 @@
 <h3 class="font-bold text-lg mb-2">{{ log.query }}</h3>
-<p class="text-sm text-base-content/60 mb-4">{{ log.created_at|date:"Y년 n월 j일 H:i" }}</p>
+<div class="flex items-center gap-3 text-sm text-base-content/60 mb-4">
+    <span>{{ log.created_at|date:"Y년 n월 j일 H:i" }}</span>
+    <span>·</span>
+    <span>조회수: {{ log.view_count }}</span>
+</div>
 
 <!-- 태그 -->
 {% if log.tags.exists %}
@@ -32,6 +36,12 @@
     {% endfor %}
 </ul>
 {% endif %}
+
+<!-- 현재 로그 ID -->
+<input type="hidden" id="current-log-id" value="{{ log.id }}">
+<!-- 이전/다음 네비게이션 데이터 -->
+<input type="hidden" id="prev-log-id" value="{{ prev_log_id|default:'' }}">
+<input type="hidden" id="next-log-id" value="{{ next_log_id|default:'' }}">
 
 <script>
 (function() {

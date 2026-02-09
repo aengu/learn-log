@@ -14,12 +14,14 @@ class MainPageView(View):
 class LogListView(View):
     """학습로그 리스트 페이지"""
     def get(self, request):
-        logs = LearningLog.objects.prefetch_related('tags').order_by('-created_at')
+        sort = request.GET.get('sort', 'latest')
+        logs = LearningLog.get_sorted_queryset(sort)
         paginator = Paginator(logs, 12)
         page = paginator.get_page(1)
-        
+
         return render(request, 'search/list.html', {
             'logs': page,
             'has_next': page.has_next(),
             'next_page': 2,
+            'current_sort': sort,
         })

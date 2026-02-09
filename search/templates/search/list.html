@@ -16,7 +16,15 @@
 
     <!-- Main Content -->
     <main class="flex-1 container mx-auto max-w-6xl px-4 py-8">
-        <h1 class="text-2xl font-bold mb-6">학습 로그</h1>
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold">학습 로그</h1>
+            <select class="select select-bordered select-sm"
+                    onchange="location.href='?sort=' + this.value">
+                <option value="latest" {% if current_sort == 'latest' %}selected{% endif %}>최신순</option>
+                <option value="oldest" {% if current_sort == 'oldest' %}selected{% endif %}>오래된순</option>
+                <option value="views" {% if current_sort == 'views' %}selected{% endif %}>조회수순</option>
+            </select>
+        </div>
         
         <!-- Card Grid -->
         <div id="log-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -30,7 +38,7 @@
             
             <!-- HTMX 무한스크롤 로더 -->
             {% if has_next %}
-            <div hx-get="{% url 'search:log_list_api' %}?page={{ next_page }}"
+            <div hx-get="{% url 'search:log_list_api' %}?page={{ next_page }}&sort={{ current_sort }}"
                  hx-trigger="revealed"
                  hx-swap="outerHTML"
                  class="col-span-full flex justify-center py-8">
@@ -60,6 +68,16 @@
             </div>
         </div>
     </div>
+    <!-- 이전/다음 네비게이션 화살표 -->
+    <!-- 모바일: 좌우 5% -->
+    <!-- 태블릿: 좌우 15% -->
+    <!-- 데스크탑: 좌우 10% -->
+    <button id="modal-prev-btn"
+            class="btn btn-circle bg-base-100/80 hover:bg-base-100 shadow-lg fixed left-[5%] md:left-[15%] lg:left-[10%] top-1/2 -translate-y-1/2 z-[100] hidden text-lg"
+            onclick="navigateLog('prev')">❮</button>
+    <button id="modal-next-btn"
+            class="btn btn-circle bg-base-100/80 hover:bg-base-100 shadow-lg fixed right-[5%] md:right-[15%] lg:right-[10%] top-1/2 -translate-y-1/2 z-[100] hidden text-lg"
+            onclick="navigateLog('next')">❯</button>
     <form method="dialog" class="modal-backdrop">
         <button>close</button>
     </form>
@@ -68,21 +86,57 @@
 
 {% block extra_js %}
 <script>
-// 모달 열기 함수
+// DOM에서 카드 ID 목록 조회
+function getCardIds() {
+    return Array.from(document.querySelectorAll('.log-card')).map(c => c.dataset.logId);
+}
+
+// 모달 열기
 function openLogDetail(logId) {
     const modal = document.getElementById('detail-modal');
     const content = document.getElementById('modal-content');
-    
-    // 로딩 표시
+
+    document.getElementById('modal-prev-btn').classList.add('hidden');
+    document.getElementById('modal-next-btn').classList.add('hidden');
+
     content.innerHTML = '<div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>';
     modal.showModal();
-    
-    // HTMX로 내용 로드
+
     htmx.ajax('GET', `/api/logs/${logId}/`, {
         target: '#modal-content',
         swap: 'innerHTML'
     });
 }
+
+// 이전/다음 네비게이션 (DOM 카드 순서 기반)
+function navigateLog(direction) {
+    const currentId = document.getElementById('current-log-id')?.value;
+    if (!currentId) return;
+
+    const ids = getCardIds();
+    const idx = ids.indexOf(currentId);
+    const targetIdx = direction === 'prev' ? idx - 1 : idx + 1;
+
+    if (targetIdx >= 0 && targetIdx < ids.length) {
+        openLogDetail(parseInt(ids[targetIdx]));
+    }
+}
+
+// 네비게이션 버튼 표시/숨김
+function updateNavButtons() {
+    const currentId = document.getElementById('current-log-id')?.value;
+    const ids = getCardIds();
+    const idx = currentId ? ids.indexOf(currentId) : -1;
+
+    document.getElementById('modal-prev-btn').classList.toggle('hidden', idx <= 0);
+    document.getElementById('modal-next-btn').classList.toggle('hidden', idx === -1 || idx >= ids.length - 1);
+}
+
+// 모달 닫힐 때 화살표 숨기기
+document.getElementById('detail-modal').addEventListener('close', function() {
+    document.getElementById('modal-prev-btn').classList.add('hidden');
+    document.getElementById('modal-next-btn').classList.add('hidden');
+});
 
 // HTMX 이벤트: 모달 내용 로드 후 스크립트 실행
 document.body.addEventListener('htmx:afterSwap', function(e) {
@@ -93,7 +147,8 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
             newScript.textContent = script.textContent;
             script.parentNode.replaceChild(newScript, script);
         });
+        updateNavButtons();
     }
 });
-</script>
+</script>    
 {% endblock %}
