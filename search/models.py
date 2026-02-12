@@ -1,3 +1,4 @@
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from django.db import models
 
 
@@ -103,11 +104,26 @@ class LearningLog(models.Model):
         self.save(update_fields=['view_count'])
     
     @classmethod
-    def get_sorted_queryset(cls, sort='latest'): # 정렬 기본값: 최신순
-        """tag 테이블까지 조인하여 정렬된 쿼리셋을 반환"""
+    def get_queryset(cls, q='', sort='latest'):
+        """
+        tag테이블까지 조인하여 검색과 정렬한 쿼리셋 반환
+        검색: 질문(1.0), 답변(0.4) 가중치 순으로 full text search
+        정렬: 연관순(검색인 경우), 최신순, 오래된순, 조회수순
+        """
         base = cls.objects.prefetch_related('tags')
-        if sort == 'views': # 조회순
+
+        if q:
+            vector = (
+                SearchVector('query', weight='A', config='simple') +
+                SearchVector('ai_response', weight='B', config='simple')
+            )
+            query = SearchQuery(q, config='simple')
+            base = base.annotate(rank=SearchRank(vector, query)).filter(rank__gt=0)
+
+        if sort == 'relevance' and q:
+            return base.order_by('-rank')
+        elif sort == 'views':
             return base.order_by('-view_count', '-created_at')
-        elif sort == 'oldest': # 오래된순
+        elif sort == 'oldest':
             return base.order_by('created_at')
         return base.order_by('-created_at')

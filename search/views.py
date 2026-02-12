@@ -12,10 +12,16 @@ class MainPageView(View):
 
 
 class LogListView(View):
-    """학습로그 리스트 페이지"""
+    """
+    학습로그 리스트 페이지
+    검색 키워드가 있는 경우 정렬: 연관순
+    """
     def get(self, request):
-        sort = request.GET.get('sort', 'latest')
-        logs = LearningLog.get_sorted_queryset(sort)
+        q = request.GET.get('q', '').strip() # 검색 키워드
+        sort = request.GET.get('sort', 'relevance' if q else 'latest')
+        logs = LearningLog.get_queryset(q=q, sort=sort)
+
+
         paginator = Paginator(logs, 12)
         page = paginator.get_page(1)
 
@@ -24,4 +30,5 @@ class LogListView(View):
             'has_next': page.has_next(),
             'next_page': 2,
             'current_sort': sort,
+            'search_query': q,
         })

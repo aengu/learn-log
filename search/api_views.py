@@ -123,11 +123,17 @@ class QueryAPIView(APIView):
 # ============================================
 
 class LogListAPIView(View):
-    """무한스크롤용 - HTML 조각 반환"""
+    """
+    무한스크롤용 - HTML 조각 반환
+    검색 키워드가 있는 경우 정렬: 연관순
+    """
     def get(self, request):
         page_num = int(request.GET.get('page', 1))
-        sort = request.GET.get('sort', 'latest')
-        logs = LearningLog.get_sorted_queryset(sort)
+        q = request.GET.get('q', '').strip()
+        sort = request.GET.get('sort', 'relevance' if q else 'latest')
+        logs = LearningLog.get_queryset(q=q, sort=sort)
+
+
         paginator = Paginator(logs, 12)
         page = paginator.get_page(page_num)
 
@@ -136,6 +142,7 @@ class LogListAPIView(View):
             'has_next': page.has_next(),
             'next_page': page_num + 1,
             'current_sort': sort,
+            'search_query': q,
         })
 
 
