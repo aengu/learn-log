@@ -19,7 +19,9 @@ class LogListView(View):
     def get(self, request):
         q = request.GET.get('q', '').strip() # 검색 키워드
         sort = request.GET.get('sort', 'relevance' if q else 'latest')
-        logs = LearningLog.get_queryset(q=q, sort=sort)
+        tag_param = request.GET.get('tag', '')
+        tags = [t for t in tag_param.split(',') if t]
+        logs = LearningLog.get_queryset(q=q, sort=sort, tags=tags)
 
 
         paginator = Paginator(logs, 12)
@@ -27,8 +29,10 @@ class LogListView(View):
 
         return render(request, 'search/list.html', {
             'logs': page,
-            'has_next': page.has_next(),
-            'next_page': 2,
+            'active_tags': tags,
+            'active_tags_str': tag_param,
             'current_sort': sort,
             'search_query': q,
+            'has_next': page.has_next(),
+            'next_page': 2,
         })

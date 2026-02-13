@@ -10,7 +10,8 @@
         {% if log.tags.exists %}
         <div class="flex flex-wrap gap-1 mt-2">
             {% for tag in log.tags.all|slice:":3" %}
-            <span class="badge badge-sm badge-outline">{{ tag.name }}</span>
+            <span class="badge badge-sm cursor-pointer {% if tag.slug in active_tags %}badge-primary{% else %}badge-outline{% endif %}"
+                  onclick="event.stopPropagation(); toggleTag('{{ tag.slug }}')">{{ tag.name }}</span>
             {% endfor %}
             {% if log.tags.count > 3 %}
             <span class="badge badge-sm badge-ghost">+{{ log.tags.count|add:"-3" }}</span>

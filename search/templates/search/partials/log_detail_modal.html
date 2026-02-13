@@ -9,7 +9,8 @@
 {% if log.tags.exists %}
 <div class="flex flex-wrap gap-2 mb-4">
     {% for tag in log.tags.all %}
-    <span class="badge badge-primary badge-outline">{{ tag.name }}</span>
+    <span class="badge badge-primary badge-outline cursor-pointer hover:badge-primary"
+    onclick="toggleTag('{{ tag.slug }}')">{{ tag.name }}</span>
     {% endfor %}
 </div>
 {% endif %}
