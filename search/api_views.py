@@ -132,9 +132,6 @@ class LogListAPIView(View):
         q = request.GET.get('q', '').strip()
         sort = request.GET.get('sort', 'relevance' if q else 'latest')
         logs = LearningLog.get_queryset(q=q, sort=sort)
-        tag_param = request.GET.get('tag', '')
-        tags = [t for t in tag_param.split(',') if t]
-        logs = LearningLog.get_queryset(q=q, sort=sort, tags=tags)
 
 
         paginator = Paginator(logs, 12)
@@ -142,12 +139,10 @@ class LogListAPIView(View):
 
         return render(request, 'search/partials/log_cards.html', {
             'logs': page,
-            'active_tags': tags,
-            'active_tags_str': tag_param,
-            'current_sort': sort,
-            'search_query': q,
             'has_next': page.has_next(),
             'next_page': page_num + 1,
+            'current_sort': sort,
+            'search_query': q,
         })
 
 
