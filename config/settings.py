@@ -68,10 +68,11 @@ DATABASES = {
         'NAME': 'learnlog',
         'USER': 'learnlog_user',
         'PASSWORD': 'learnlog_password',
-        'HOST': 'db',  # docker-compose.yml의 서비스 이름
+        'HOST': os.getenv('DATABASE_HOST', 'db'),  # 기본값 db (Docker), CI에서는 localhost
         'PORT': '5432',
     }
 }
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
