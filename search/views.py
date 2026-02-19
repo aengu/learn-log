@@ -21,8 +21,8 @@ class LogListView(View):
         sort = request.GET.get('sort', 'relevance' if q else 'latest')
         tag_param = request.GET.get('tag', '')
         tags = [t for t in tag_param.split(',') if t]
-        logs = LearningLog.get_queryset(q=q, sort=sort, tags=tags)
-
+        bookmarked = request.GET.get('bookmarked') == 'true'
+        logs = LearningLog.get_queryset(q=q, sort=sort, tags=tags, bookmarked=bookmarked)
 
         paginator = Paginator(logs, 12)
         page = paginator.get_page(1)
@@ -35,4 +35,9 @@ class LogListView(View):
             'search_query': q,
             'has_next': page.has_next(),
             'next_page': 2,
+            'current_sort': sort,
+            'search_query': q,
+            'active_tags': tags,
+            'active_tags_str': tag_param,
+            'bookmarked': bookmarked,
         })

@@ -104,14 +104,17 @@ class LearningLog(models.Model):
         self.save(update_fields=['view_count'])
     
     @classmethod
-    def get_queryset(cls, q='', sort='latest', tags=None):
+    def get_queryset(cls, q='', sort='latest', tags=None, bookmarked=False):
         """
         tag테이블까지 조인하여 검색과 정렬한 쿼리셋 반환
         검색: 질문(1.0), 답변(0.4) 가중치 순으로 full text search
         정렬: 연관순(검색인 경우), 최신순, 오래된순, 조회수순
+        북마크
         """
         base = cls.objects.prefetch_related('tags')
 
+        if bookmarked:
+            base = base.filter(is_bookmarked=True)
         if tags:
             base = base.filter(tags__slug__in=tags).distinct()
 

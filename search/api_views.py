@@ -1,7 +1,7 @@
 import json
 from django.shortcuts import render
 from django.views import View
-from django.http import StreamingHttpResponse, HttpResponse
+from django.http import StreamingHttpResponse, HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -12,7 +12,7 @@ from rest_framework import status
 
 from .models import LearningLog
 from .services import LearnlogService
-from .serializers import LearningLogDetailSerializer, QueryInputSerializer
+from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
 
 
 # ============================================
@@ -131,11 +131,10 @@ class LogListAPIView(View):
         page_num = int(request.GET.get('page', 1))
         q = request.GET.get('q', '').strip()
         sort = request.GET.get('sort', 'relevance' if q else 'latest')
-        logs = LearningLog.get_queryset(q=q, sort=sort)
         tag_param = request.GET.get('tag', '')
         tags = [t for t in tag_param.split(',') if t]
-        logs = LearningLog.get_queryset(q=q, sort=sort, tags=tags)
-
+        bookmarked = request.GET.get('bookmarked') == 'true'
+        logs = LearningLog.get_queryset(q=q, sort=sort, tags=tags, bookmarked=bookmarked)
 
         paginator = Paginator(logs, 12)
         page = paginator.get_page(page_num)
@@ -148,11 +147,19 @@ class LogListAPIView(View):
             'search_query': q,
             'has_next': page.has_next(),
             'next_page': page_num + 1,
+            'current_sort': sort,
+            'search_query': q,
+            'active_tags': tags,
+            'active_tags_str': tag_param,
+            'bookmarked': bookmarked,
         })
 
 
-class LogDetailAPIView(View):
-    """학습로그 상세 - 모달용 HTML 반환"""
+class LogDetailAPIView(APIView):
+    """학습로그 상세 - GET: 모달 HTML, PATCH: 부분 수정"""
+    authentication_classes = []
+    permission_classes = []
+
     def get(self, request, pk):
         try:
             log = LearningLog.objects.prefetch_related('tags', 'references').get(pk=pk)
@@ -160,3 +167,14 @@ class LogDetailAPIView(View):
             return render(request, 'search/partials/log_detail_modal.html', {'log': log})
         except LearningLog.DoesNotExist:
             return HttpResponse('<div class="alert alert-error">로그를 찾을 수 없습니다.</div>')
+
+    def patch(self, request, pk):
+        try:
+            log = LearningLog.objects.get(pk=pk)
+        except LearningLog.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = LearningLogUpdateSerializer(log, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

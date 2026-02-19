@@ -2,7 +2,12 @@
      data-log-id="{{ log.id }}"
      onclick="openLogDetail({{ log.id }})">
     <div class="card-body">
-        <h2 class="card-title text-base line-clamp-2">{{ log.query }}</h2>
+        <div class="flex justify-between items-start">
+            <h2 class="card-title text-base line-clamp-2 flex-1">{{ log.query }}</h2>
+            <span class="cursor-pointer text-lg ml-2 {% if log.is_bookmarked %}text-warning{% else %}text-base-content/20{% endif %}"
+                  data-bookmark-id="{{ log.id }}"
+                  onclick="event.stopPropagation(); toggleBookmark({{ log.id }})">★</span>
+        </div>
         <p class="text-sm text-base-content/60 line-clamp-2">
             {{ log.ai_response|truncatechars:100 }}
         </p>

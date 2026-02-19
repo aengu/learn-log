@@ -48,6 +48,15 @@ class LearningLogDetailSerializer(serializers.ModelSerializer):
         ]
 
 
+class LearningLogUpdateSerializer(serializers.ModelSerializer):
+    """
+    학습로그 부분 수정용 (북마크 등)
+    """
+    class Meta:
+        model = LearningLog
+        fields = ['is_bookmarked']
+
+
 class QueryInputSerializer(serializers.Serializer):
     """
     질문 입력용 시리얼라이저

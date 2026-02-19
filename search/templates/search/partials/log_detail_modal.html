@@ -1,4 +1,9 @@
-<h3 class="font-bold text-lg mb-2">{{ log.query }}</h3>
+<div class="flex justify-between items-start">
+    <h3 class="font-bold text-lg mb-2 flex-1">{{ log.query }}</h3>
+    <span class="cursor-pointer text-xl {% if log.is_bookmarked %}text-warning{% else %}text-base-content/20{% endif %}"
+          data-bookmark-id="{{ log.id }}"
+          onclick="toggleBookmark({{ log.id }})">★</span>
+</div>
 <div class="flex items-center gap-3 text-sm text-base-content/60 mb-4">
     <span>{{ log.created_at|date:"Y년 n월 j일 H:i" }}</span>
     <span>·</span>
