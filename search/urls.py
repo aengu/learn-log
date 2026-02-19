@@ -4,7 +4,6 @@ from .api_views import (
     QueryHTMXView, 
     QuerySSEView, 
     QueryAPIView,
-    LogListAPIView,
     LogDetailAPIView,
 )
 
@@ -21,6 +20,5 @@ urlpatterns = [
     path('api/query/stream/', QuerySSEView.as_view(), name='query_api_stream'),
 
     # Log API
-    path('api/logs/', LogListAPIView.as_view(), name='log_list_api'),
     path('api/logs/<int:pk>/', LogDetailAPIView.as_view(), name='log_detail_api'),
 ]
