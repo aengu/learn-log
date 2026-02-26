@@ -40,4 +40,4 @@ jobs:
         env:
           DEBUG: 'True'
           DATABASE_HOST: localhost
-        run: python manage.py test
+        run: pytest

@@ -6,3 +6,6 @@ python-dotenv>=1.0.0
 groq>=0.4.0
 tavily-python>=0.3.0
 debugpy>=1.8.0
+pytest>=8.0
+pytest-django>=4.8
+factory-boy>=3.3

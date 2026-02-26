@@ -23,7 +23,8 @@ services:
       - .:/app
     ports:
       - "8000:8000"
-      - "5678:5678"
+      - "5678:5678"   # 서버 디버깅
+      - "5679:5679"   # pytest 디버깅
     depends_on:
       - db
     environment:

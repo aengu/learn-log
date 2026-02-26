@@ -19,6 +19,9 @@ todo
     - 필터: 태그 
     - 북마크
 - 레퍼런스, 태그, 학습기록 통계 페이지
+- [진행중] 테스트코드 작성
+    - [진행중] api
+    - service
 """
 
 class LearnlogService:
