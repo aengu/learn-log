@@ -1,0 +1,28 @@
+databases:
+  - name: learnlog-db
+    plan: free
+    databaseName: learnlog
+    user: learnlog_user
+
+services:
+  - type: web
+    name: learn-log
+    runtime: python
+    plan: free
+    buildCommand: ./build.sh
+    startCommand: gunicorn config.wsgi:application
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: learnlog-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.4"
