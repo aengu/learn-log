@@ -54,7 +54,7 @@ class Command(BaseCommand):
     def _parse_local_db(self):
         """docker-compose.yml의 DB 설정을 반환"""
         return {
-            "host": "localhost",
+            "host": os.getenv("POSTGRES_HOST", "db"),
             "port": "5432",
             "name": os.getenv("POSTGRES_DB", "learnlog"),
             "user": os.getenv("POSTGRES_USER", "learnlog_user"),
