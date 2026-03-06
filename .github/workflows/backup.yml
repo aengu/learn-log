@@ -1,0 +1,31 @@
+name: DB Backup
+
+on:
+  schedule:
+    # 매주 일요일 15:00 UTC (KST 월요일 00:00)
+    - cron: '0 15 * * 0'
+  workflow_dispatch:  # 수동 실행
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Dump database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          pg_dump --no-owner --no-privileges --format=custom \
+            --file=learnlog_backup.dump "$DATABASE_URL"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: learnlog_backup.dump
+          retention-days: 90
