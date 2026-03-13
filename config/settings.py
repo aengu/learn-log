@@ -73,6 +73,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 DATABASE_URL = os.getenv('DATABASE_URL')
 if DATABASE_URL:
+    # Render 프로덕션: DATABASE_URL 환경변수로 연결
     DATABASES = {
         'default': dj_database_url.parse(DATABASE_URL)
     }
