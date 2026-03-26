@@ -1,8 +1,9 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.views import View
 from django.core.paginator import Paginator
 
-from .models import LearningLog
+from .models import LearningLog, Exercise
+from .services import ExerciseService
 
 
 class MainPageView(View):
@@ -49,3 +50,19 @@ class LogListView(View):
             return render(request, 'search/partials/log_cards.html', context)
     
         return render(request, 'search/list.html', context)
+
+
+class ExerciseListView(View):
+    """복습 대기 중인 연습문제 목록"""
+    def get(self, request):
+        exercises = ExerciseService.get_due_exercises()
+        return render(request, 'search/exercises/list.html', {'exercises': exercises})
+
+
+class ExerciseDetailView(View):
+    """연습문제 풀기 페이지"""
+    def get(self, request, pk):
+        exercise = get_object_or_404(
+            Exercise.objects.select_related('learning_log'), pk=pk
+        )
+        return render(request, 'search/exercises/detail.html', {'exercise': exercise})

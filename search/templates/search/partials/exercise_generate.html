@@ -1,0 +1,15 @@
+<p class="font-semibold text-sm mb-3">연습문제 만들기</p>
+<div class="flex flex-wrap gap-2">
+    {% for type_value, type_label in exercise_types %}
+    <form hx-post="{% url 'search:exercise_generate' log.id %}"
+          hx-target="#exercise-gen-feedback-{{ log.id }}"
+          hx-swap="innerHTML"
+          hx-indicator="#exercise-gen-indicator-{{ log.id }}">
+        {% csrf_token %}
+        <input type="hidden" name="exercise_type" value="{{ type_value }}">
+        <button type="submit" class="btn btn-sm btn-outline">{{ type_label }}</button>
+    </form>
+    {% endfor %}
+    <span id="exercise-gen-indicator-{{ log.id }}" class="htmx-indicator loading loading-spinner loading-sm self-center"></span>
+</div>
+<div id="exercise-gen-feedback-{{ log.id }}" class="mt-2"></div>

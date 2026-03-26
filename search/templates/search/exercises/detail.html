@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block title %}연습문제 - Learn Log{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex flex-col">
+    <main class="flex-1 container mx-auto max-w-3xl px-4 py-8">
+        <!-- 헤더 -->
+        <div class="mb-6">
+            <div class="flex items-center gap-2 mb-2">
+                {% if exercise.exercise_type == 'generation_compare' %}
+                <span class="badge badge-secondary">생성→비교</span>
+                {% elif exercise.exercise_type == 'path_trace' %}
+                <span class="badge badge-accent">경로추적</span>
+                {% else %}
+                <span class="badge badge-info">인출 체크인</span>
+                {% endif %}
+                <span class="text-sm text-base-content/50">복습 주기: {{ exercise.review_interval }}일</span>
+            </div>
+            <p class="text-sm text-base-content/60">
+                원본 질문: <span class="font-medium">{{ exercise.learning_log.query }}</span>
+            </p>
+        </div>
+
+        <!-- 문제 영역 -->
+        <div class="card bg-base-100 shadow-md">
+            <div class="card-body">
+
+                {% if exercise.exercise_type == 'generation_compare' %}
+                <!-- ── 생성→비교 ── -->
+                <h2 class="card-title text-lg mb-4">{{ exercise.content.question }}</h2>
+                <div id="answer-area">
+                    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+                          hx-target="#result-area"
+                          hx-swap="innerHTML"
+                          hx-indicator="#submit-indicator">
+                        {% csrf_token %}
+                        <textarea name="answer"
+                                  class="textarea textarea-bordered w-full h-40 resize-none mb-4"
+                                  placeholder="여기에 답변을 작성해보세요..."></textarea>
+                        <div class="flex items-center gap-3">
+                            <button type="submit" class="btn btn-primary">제출하기</button>
+                            <span id="submit-indicator" class="htmx-indicator loading loading-spinner loading-sm"></span>
+                        </div>
+                    </form>
+                </div>
+
+                {% elif exercise.exercise_type == 'path_trace' %}
+                <!-- ── 경로추적 ── -->
+                <h2 class="card-title text-lg mb-2">경로 추적</h2>
+                <p class="text-base-content/70 mb-6">{{ exercise.content.scenario }}</p>
+
+                <div id="steps-container">
+                    {% for step in exercise.content.steps %}
+                    <div class="step-card mb-6 {% if not forloop.first %}hidden{% endif %}"
+                         data-step="{{ forloop.counter0 }}"
+                         data-correct="{{ step.correct_index }}">
+                        <p class="font-semibold mb-3">
+                            Step {{ forloop.counter }} / {{ exercise.content.steps|length }}
+                        </p>
+                        <p class="mb-4">{{ step.question }}</p>
+                        <div class="flex flex-col gap-2">
+                            {% for choice in step.choices %}
+                            <button class="btn btn-outline justify-start text-left choice-btn"
+                                    data-choice="{{ forloop.counter0 }}"
+                                    onclick="selectChoice(this)">
+                                <span class="font-mono mr-2">{{ forloop.counter0|add:"0"|stringformat:"c" }}</span>
+                                {{ choice }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <!-- 피드백 (JS로 표시) -->
+                        <div class="step-feedback hidden mt-3 p-3 rounded-lg text-sm">
+                            {{ step.explanation }}
+                        </div>
+                        <button class="btn btn-sm btn-ghost mt-3 next-btn hidden"
+                                onclick="nextStep({{ forloop.counter0 }})">
+                            다음 →
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- 전체 제출 (모든 스텝 완료 후 표시) -->
+                <div id="submit-area" class="hidden">
+                    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+                          hx-target="#result-area"
+                          hx-swap="innerHTML"
+                          hx-indicator="#submit-indicator">
+                        {% csrf_token %}
+                        <input type="hidden" name="selected_indices" id="selected-indices-input" value="[]">
+                        <div class="flex items-center gap-3">
+                            <button type="submit" class="btn btn-primary">결과 저장하기</button>
+                            <span id="submit-indicator" class="htmx-indicator loading loading-spinner loading-sm"></span>
+                        </div>
+                    </form>
+                </div>
+
+                {% else %}
+                <!-- ── 인출 체크인 ── -->
+                <h2 class="card-title text-lg mb-4">{{ exercise.content.question }}</h2>
+                <div id="answer-area">
+                    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+                          hx-target="#result-area"
+                          hx-swap="innerHTML"
+                          hx-indicator="#submit-indicator">
+                        {% csrf_token %}
+                        <textarea name="answer"
+                                  class="textarea textarea-bordered w-full h-40 resize-none mb-4"
+                                  placeholder="기억나는 대로 자유롭게 작성해보세요..."></textarea>
+                        <div class="flex items-center gap-3">
+                            <button type="submit" class="btn btn-primary">제출하기</button>
+                            <span id="submit-indicator" class="htmx-indicator loading loading-spinner loading-sm"></span>
+                        </div>
+                    </form>
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+
+        <!-- 결과 영역 (HTMX 타겟) -->
+        <div id="result-area" class="mt-6"></div>
+    </main>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if exercise.exercise_type == 'path_trace' %}
+<script>
+const totalSteps = {{ exercise.content.steps|length }};
+const selectedIndices = [];
+
+function selectChoice(btn) {
+    const stepCard = btn.closest('.step-card');
+    const stepIdx = parseInt(stepCard.dataset.step);
+    const correctIdx = parseInt(stepCard.dataset.correct);
+    const choiceIdx = parseInt(btn.dataset.choice);
+
+    // 이미 답변했으면 무시
+    if (selectedIndices[stepIdx] !== undefined) return;
+    selectedIndices[stepIdx] = choiceIdx;
+
+    // 모든 버튼 비활성화
+    stepCard.querySelectorAll('.choice-btn').forEach((b, i) => {
+        b.disabled = true;
+        if (i === correctIdx) {
+            b.classList.remove('btn-outline');
+            b.classList.add('btn-success');
+        } else if (i === choiceIdx && choiceIdx !== correctIdx) {
+            b.classList.remove('btn-outline');
+            b.classList.add('btn-error');
+        }
+    });
+
+    // 피드백 표시
+    const feedback = stepCard.querySelector('.step-feedback');
+    feedback.classList.remove('hidden');
+    feedback.classList.add(choiceIdx === correctIdx ? 'bg-success/20' : 'bg-error/20');
+
+    // 다음 버튼 표시
+    const nextBtn = stepCard.querySelector('.next-btn');
+    if (stepIdx < totalSteps - 1) {
+        nextBtn.classList.remove('hidden');
+    } else {
+        // 마지막 스텝 완료
+        document.getElementById('selected-indices-input').value = JSON.stringify(selectedIndices);
+        document.getElementById('submit-area').classList.remove('hidden');
+        nextBtn.classList.add('hidden');
+    }
+}
+
+function nextStep(currentIdx) {
+    // 현재 스텝 숨기기
+    document.querySelector(`[data-step="${currentIdx}"]`).classList.add('hidden');
+    // 다음 스텝 보이기
+    const next = document.querySelector(`[data-step="${currentIdx + 1}"]`);
+    if (next) next.classList.remove('hidden');
+}
+</script>
+{% endif %}
+{% endblock %}

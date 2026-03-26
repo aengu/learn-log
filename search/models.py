@@ -1,5 +1,6 @@
 from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from django.db import models
+from django.utils import timezone
 
 
 class Tag(models.Model):
@@ -104,7 +105,7 @@ class LearningLog(models.Model):
         self.save(update_fields=['view_count'])
     
     @classmethod
-    def get_queryset(cls, q='', sort='latest', tags=None, bookmarked=False):
+    def get_queryset(cls, q='', sort='latest', tags=None, bookmarked=False):  # noqa: E501
         """
         tag테이블까지 조인하여 검색과 정렬한 쿼리셋 반환
         검색: 질문(1.0), 답변(0.4) 가중치 순으로 full text search
@@ -133,3 +134,88 @@ class LearningLog(models.Model):
         elif sort == 'oldest':
             return base.order_by('created_at')
         return base.order_by('-created_at')
+
+
+REVIEW_INTERVALS = [1, 3, 7, 14, 30]
+
+
+class Exercise(models.Model):
+    EXERCISE_TYPE_CHOICES = [
+        ('generation_compare', '생성→비교'),
+        ('path_trace', '경로추적'),
+        ('retrieval_checkin', '인출 체크인'),
+    ]
+
+    learning_log = models.ForeignKey(
+        LearningLog,
+        on_delete=models.CASCADE,
+        related_name='exercises',
+        verbose_name="학습 로그"
+    )
+    exercise_type = models.CharField(
+        max_length=30,
+        choices=EXERCISE_TYPE_CHOICES,
+        verbose_name="유형"
+    )
+    content = models.JSONField(verbose_name="문제 내용")
+    review_interval = models.PositiveIntegerField(default=1, verbose_name="복습 주기(일)")
+    next_review_at = models.DateTimeField(null=True, blank=True, verbose_name="다음 복습일")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일")
+
+    class Meta:
+        ordering = ['next_review_at', '-created_at']
+        verbose_name = "연습문제"
+        verbose_name_plural = "연습문제"
+        indexes = [
+            models.Index(fields=['next_review_at']),
+            models.Index(fields=['exercise_type']),
+        ]
+
+    def __str__(self):
+        return f"[{self.get_exercise_type_display()}] {self.learning_log.query[:40]}"
+
+    def is_due(self):
+        if self.next_review_at is None:
+            return True
+        return timezone.now() >= self.next_review_at
+
+    def advance_interval(self):
+        """마지막 성공 기준으로 다음 복습일 계산 (1→3→7→14→30일)"""
+        try:
+            idx = REVIEW_INTERVALS.index(self.review_interval)
+            next_interval = REVIEW_INTERVALS[min(idx + 1, len(REVIEW_INTERVALS) - 1)]
+        except ValueError:
+            next_interval = 1
+        self.review_interval = next_interval
+        self.next_review_at = timezone.now() + timezone.timedelta(days=next_interval)
+        self.save(update_fields=['review_interval', 'next_review_at'])
+
+    def reset_interval(self):
+        """오답 시 1일로 리셋"""
+        self.review_interval = 1
+        self.next_review_at = timezone.now() + timezone.timedelta(days=1)
+        self.save(update_fields=['review_interval', 'next_review_at'])
+
+
+class ExerciseAttempt(models.Model):
+    exercise = models.ForeignKey(
+        Exercise,
+        on_delete=models.CASCADE,
+        related_name='attempts',
+        verbose_name="연습문제"
+    )
+    user_answer = models.JSONField(verbose_name="사용자 답변")
+    is_correct = models.BooleanField(null=True, blank=True, verbose_name="정답 여부")
+    ai_feedback = models.TextField(blank=True, verbose_name="AI 피드백")
+    score = models.FloatField(null=True, blank=True, verbose_name="점수(0~1)")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="시도일")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "풀이 시도"
+        verbose_name_plural = "풀이 시도"
+
+    def __str__(self):
+        status = "정답" if self.is_correct else ("오답" if self.is_correct is False else "채점중")
+        return f"{self.exercise} - {status}"

@@ -43,6 +43,12 @@
 </ul>
 {% endif %}
 
+<!-- 연습문제 만들기 -->
+<div class="divider"></div>
+<div>
+    {% include 'search/partials/exercise_generate.html' %}
+</div>
+
 <!-- 현재 로그 ID -->
 <input type="hidden" id="current-log-id" value="{{ log.id }}">
 <!-- 이전/다음 네비게이션 데이터 -->

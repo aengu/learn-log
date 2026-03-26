@@ -1,7 +1,8 @@
 from django.contrib import admin
-from .models import LearningLog, Tag, Reference
-# Register your models here.
+from .models import LearningLog, Tag, Reference, Exercise, ExerciseAttempt
 
 admin.site.register(LearningLog)
 admin.site.register(Tag)
 admin.site.register(Reference)
+admin.site.register(Exercise)
+admin.site.register(ExerciseAttempt)

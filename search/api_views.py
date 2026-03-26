@@ -10,9 +10,11 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import LearningLog
-from .services import LearnlogService
+from .models import LearningLog, Exercise
+from .services import LearnlogService, ExerciseService
 from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
+
+EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
 
 
 # ============================================
@@ -32,7 +34,10 @@ class QueryHTMXView(View):
         try:
             service = LearnlogService()
             log = service.process_query(query)
-            return render(request, 'search/partials/result.html', {'log': log})
+            return render(request, 'search/partials/result.html', {
+                'log': log,
+                'exercise_types': EXERCISE_TYPES,
+            })
         except Exception as e:
             return render(request, 'search/partials/error.html', {
                 'error_message': str(e)
@@ -51,12 +56,13 @@ class QuerySSEView(View):
                 content_type='text/event-stream'
             )
 
+        custom_instructions = request.POST.get('custom_instructions', '').strip() or None
         return StreamingHttpResponse(
-            self._process_stream(query),
+            self._process_stream(query, custom_instructions),
             content_type='text/event-stream'
         )
 
-    def _process_stream(self, query):
+    def _process_stream(self, query, custom_instructions=None):
         try:
             service = LearnlogService()
 
@@ -65,7 +71,7 @@ class QuerySSEView(View):
             search_results = service.search_official_docs(query)
             yield self._sse_event('progress', {'step': 2, 'total': 5, 'message': f'검색 완료: {len(search_results.get("results", []))}개 결과'})
 
-            ai_answer = service.generate_answer(query, search_results)
+            ai_answer = service.generate_answer(query, search_results, custom_instructions)
             yield self._sse_event('progress', {'step': 3, 'total': 5, 'message': f'AI 답변 생성 완료 ({len(ai_answer)}자)'})
 
             tag_names = service.extract_tags(query, ai_answer)
@@ -76,7 +82,10 @@ class QuerySSEView(View):
 
             log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names)
 
-            result_html = render_to_string('search/partials/result.html', {'log': log})
+            result_html = render_to_string('search/partials/result.html', {
+                'log': log,
+                'exercise_types': EXERCISE_TYPES,
+            })
             yield self._sse_event('complete', {'html': result_html})
 
         except Exception as e:
@@ -131,7 +140,10 @@ class LogDetailAPIView(APIView):
         try:
             log = LearningLog.objects.prefetch_related('tags', 'references').get(pk=pk)
             log.increment_view_count()
-            return render(request, 'search/partials/log_detail_modal.html', {'log': log})
+            return render(request, 'search/partials/log_detail_modal.html', {
+                'log': log,
+                'exercise_types': EXERCISE_TYPES,
+            })
         except LearningLog.DoesNotExist:
             return HttpResponse('<div class="alert alert-error">로그를 찾을 수 없습니다.</div>')
 
@@ -145,3 +157,65 @@ class LogDetailAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+# ============================================
+# 연습문제 API
+# ============================================
+
+class ExerciseGenerateAPIView(View):
+    """연습문제 생성 - HTMX POST"""
+    def post(self, request, log_pk):
+        exercise_type = request.POST.get('exercise_type', '')
+        valid_types = ['generation_compare', 'path_trace', 'retrieval_checkin']
+        if exercise_type not in valid_types:
+            return HttpResponse(
+                '<div class="alert alert-error">유효하지 않은 유형입니다.</div>'
+            )
+        try:
+            log = LearningLog.objects.get(pk=log_pk)
+        except LearningLog.DoesNotExist:
+            return HttpResponse('<div class="alert alert-error">학습 로그를 찾을 수 없습니다.</div>')
+
+        try:
+            service = ExerciseService()
+            exercise = service.generate_exercise(log, exercise_type)
+            url = f'/exercises/{exercise.pk}/'
+            return HttpResponse(
+                f'<a href="{url}" class="btn btn-sm btn-primary">문제 풀러 가기 →</a>'
+            )
+        except Exception as e:
+            return HttpResponse(
+                f'<div class="alert alert-error">생성 오류: {e}</div>'
+            )
+
+
+class ExerciseAttemptAPIView(View):
+    """연습문제 풀이 제출 - HTMX POST"""
+    def post(self, request, pk):
+        try:
+            exercise = Exercise.objects.select_related('learning_log').get(pk=pk)
+        except Exercise.DoesNotExist:
+            return HttpResponse('<div class="alert alert-error">연습문제를 찾을 수 없습니다.</div>')
+
+        exercise_type = exercise.exercise_type
+        if exercise_type == 'path_trace':
+            raw = request.POST.get('selected_indices', '[]')
+            try:
+                user_answer = {'selected_indices': json.loads(raw)}
+            except (json.JSONDecodeError, ValueError):
+                return HttpResponse('<div class="alert alert-error">잘못된 답변 형식입니다.</div>')
+        else:
+            user_answer = {'text': request.POST.get('answer', '').strip()}
+
+        try:
+            service = ExerciseService()
+            evaluation = service.evaluate_attempt(exercise, user_answer)
+            attempt = service.save_attempt(exercise, user_answer, evaluation)
+            return render(request, 'search/partials/exercise_result.html', {
+                'exercise': exercise,
+                'attempt': attempt,
+                'evaluation': evaluation,
+            })
+        except Exception as e:
+            return HttpResponse(f'<div class="alert alert-error">채점 오류: {e}</div>')

@@ -1,0 +1,26 @@
+{% with url_name=request.resolver_match.url_name %}
+<div class="navbar bg-base-100 shadow-sm">
+    <div class="flex-1">
+        <a href="{% url 'search:main' %}" class="btn btn-ghost text-xl">Learn Log</a>
+    </div>
+    <div class="flex-none gap-2 flex">
+        {% if url_name == 'log_list' %}
+            <span class="btn btn-ghost btn-sm pointer-events-none opacity-40">질문기록</span>
+        {% else %}
+            <a href="{% url 'search:log_list' %}" class="btn btn-ghost btn-sm">질문기록</a>
+        {% endif %}
+
+        {% if url_name == 'exercise_list' or url_name == 'exercise_detail' %}
+            <span class="btn btn-ghost btn-sm pointer-events-none opacity-40">복습하기</span>
+        {% else %}
+            <a href="{% url 'search:exercise_list' %}" class="btn btn-ghost btn-sm">복습하기</a>
+        {% endif %}
+
+        {% if url_name == 'main' %}
+            <span class="btn btn-primary btn-sm pointer-events-none opacity-40">새 질문</span>
+        {% else %}
+            <a href="{% url 'search:main' %}" class="btn btn-primary btn-sm">새 질문</a>
+        {% endif %}
+    </div>
+</div>
+{% endwith %}
