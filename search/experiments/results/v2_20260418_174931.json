@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-04-18T17:51:35",
+  "model": "llama-3.3-70b-versatile",
+  "temperature": 0.4,
+  "batches": [
+    {
+      "label": "V2",
+      "queries": [
+        "python_gc"
+      ],
+      "iterations": 20,
+      "calls_made": 20,
+      "api_failures": 0,
+      "parse_failures": 0,
+      "total_steps": 80,
+      "verified_steps": 30,
+      "error_steps": 1,
+      "skipped_steps": 50,
+      "error_rate": 0.03333333333333333,
+      "by_strategy": {
+        "numeric": {
+          "total": 15,
+          "errors": 1
+        },
+        "descriptive": {
+          "total": 15,
+          "errors": 0
+        }
+      },
+      "by_query": {
+        "python_gc": {
+          "total_steps": 80,
+          "error_steps": 1,
+          "verified_steps": 30,
+          "parse_failures": 0
+        }
+      },
+      "errors_detail": [
+        "python_gc iter18 step1 [numeric]: MISMATCH: explanation 정답='2', choices[2]='3' (정답은 choices[1]에 존재)"
+      ]
+    }
+  ]
+}

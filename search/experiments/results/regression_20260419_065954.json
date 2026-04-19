@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-04-19T07:04:17",
+  "model": "llama-3.3-70b-versatile",
+  "temperature": 0.4,
+  "batches": [
+    {
+      "label": "NEW",
+      "queries": [
+        "python_gc",
+        "binary_search",
+        "http_redirect",
+        "sql_btree_index",
+        "jwt_verification"
+      ],
+      "iterations": 8,
+      "calls_made": 40,
+      "api_failures": 0,
+      "parse_failures": 0,
+      "total_steps": 161,
+      "verified_steps": 16,
+      "error_steps": 0,
+      "skipped_steps": 145,
+      "error_rate": 0.0,
+      "by_strategy": {
+        "numeric": {
+          "total": 1,
+          "errors": 0
+        },
+        "descriptive": {
+          "total": 15,
+          "errors": 0
+        }
+      },
+      "by_query": {
+        "python_gc": {
+          "total_steps": 32,
+          "error_steps": 0,
+          "verified_steps": 12,
+          "parse_failures": 0
+        },
+        "binary_search": {
+          "total_steps": 32,
+          "error_steps": 0,
+          "verified_steps": 4,
+          "parse_failures": 0
+        },
+        "http_redirect": {
+          "total_steps": 32,
+          "error_steps": 0,
+          "verified_steps": 0,
+          "parse_failures": 0
+        },
+        "sql_btree_index": {
+          "total_steps": 33,
+          "error_steps": 0,
+          "verified_steps": 0,
+          "parse_failures": 0
+        },
+        "jwt_verification": {
+          "total_steps": 32,
+          "error_steps": 0,
+          "verified_steps": 0,
+          "parse_failures": 0
+        }
+      },
+      "errors_detail": []
+    }
+  ]
+}

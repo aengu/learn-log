@@ -143,7 +143,7 @@ class LearnlogService:
 
     
     DEFAULT_INSTRUCTIONS = textwrap.dedent("""
-        - 한국어로 작성
+        - 한국어로 작성 (한자 사용 금지, 한글로만 표기)
         - 기술적으로 정확하게
         - 개념 설명 → 동작 원리 → 코드 예시 → 주의사항 순서로 구성
         - 코드 예시는 반드시 포함하고, 각 줄에 주석으로 설명 추가
@@ -181,7 +181,7 @@ class LearnlogService:
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=4000
+                max_tokens=6000
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -366,6 +366,21 @@ class ExerciseService:
               ]
             }}
             steps는 3~5개로 구성하세요.
+
+            ⚠️ correct_index 규칙 (반드시 준수):
+            - correct_index는 choices 배열의 0-based 인덱스입니다. (첫 요소 = 0)
+            - choices[correct_index]의 값이 정답 값과 정확히 같아야 합니다.
+            - 정답 '값(value)'과 '인덱스(index)'는 다릅니다.
+              특히 choices가 1부터 시작하는 경우 헷갈리기 쉬우니 아래 예시를 반드시 확인하세요.
+
+              예 A: choices=["1","2","3","4"], 정답 값="2"
+                    → choices[1]="2" → correct_index = 1 ✅
+                    → choices[2]="3" → correct_index = 2 는 틀림 ❌
+
+              예 B: choices=["1","2","3","4"], 정답 값="1"
+                    → choices[0]="1" → correct_index = 0 ✅
+
+            - correct_index를 정한 뒤, choices[correct_index]를 꺼내서 정답 값과 같은지 다시 확인하세요.
         """).strip()
         return self._call_groq_json(prompt)
 
@@ -449,7 +464,7 @@ class ExerciseService:
             {{
               "score": 0.0~1.0,
               "is_correct": true/false,
-              "feedback": "잘한 점과 보완할 점을 한국어로 설명"
+              "feedback": "아래 구조로 한국어로 작성:\n1. 맞게 설명한 부분 (what)\n2. 놓친 부분\n3. 왜 그렇게 동작하는지 (why) — 학습자가 설명했으면 인정, 안 했으면 짚어주기"
             }}
         """).strip()
         try:

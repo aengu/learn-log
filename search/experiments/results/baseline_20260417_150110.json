@@ -1,0 +1,85 @@
+{
+  "generated_at": "2026-04-17T15:04:37",
+  "model": "llama-3.3-70b-versatile",
+  "temperature": 0.4,
+  "batches": [
+    {
+      "label": "OLD",
+      "queries": [
+        "python_gc"
+      ],
+      "iterations": 20,
+      "calls_made": 20,
+      "api_failures": 0,
+      "parse_failures": 0,
+      "total_steps": 80,
+      "verified_steps": 22,
+      "error_steps": 3,
+      "skipped_steps": 58,
+      "error_rate": 0.13636363636363635,
+      "by_strategy": {
+        "numeric": {
+          "total": 12,
+          "errors": 1
+        },
+        "descriptive": {
+          "total": 10,
+          "errors": 2
+        }
+      },
+      "by_query": {
+        "python_gc": {
+          "total_steps": 80,
+          "error_steps": 3,
+          "verified_steps": 22,
+          "parse_failures": 0
+        }
+      },
+      "errors_detail": [
+        "python_gc iter3 step0 [descriptive]: MISMATCH: explanation 정답='1', choices[1]='참조 횟수가 2로 증가한다' (정답 미포함), choices[0]='참조 횟수가 1로 유지된다' (정답 포함)",
+        "python_gc iter16 step0 [descriptive]: MISMATCH: explanation 정답='1', choices[1]='참조 횟수는 2로 증가한다' (정답 미포함), choices[0]='참조 횟수는 1로 유지된다' (정답 포함)",
+        "python_gc iter19 step1 [numeric]: MISMATCH: explanation 정답='2', choices[1]='1' (정답은 choices[2]에 존재)"
+      ]
+    },
+    {
+      "label": "NEW",
+      "queries": [
+        "python_gc"
+      ],
+      "iterations": 20,
+      "calls_made": 20,
+      "api_failures": 0,
+      "parse_failures": 0,
+      "total_steps": 80,
+      "verified_steps": 28,
+      "error_steps": 5,
+      "skipped_steps": 52,
+      "error_rate": 0.17857142857142858,
+      "by_strategy": {
+        "numeric": {
+          "total": 12,
+          "errors": 5
+        },
+        "descriptive": {
+          "total": 16,
+          "errors": 0
+        }
+      },
+      "by_query": {
+        "python_gc": {
+          "total_steps": 80,
+          "error_steps": 5,
+          "verified_steps": 28,
+          "parse_failures": 0
+        }
+      },
+      "errors_detail": [
+        "python_gc iter5 step1 [numeric]: MISMATCH: explanation 정답='2', choices[2]='3' (정답은 choices[1]에 존재)",
+        "python_gc iter7 step0 [numeric]: MISMATCH: explanation 정답='1', choices[2]='3' (정답은 choices[0]에 존재)",
+        "python_gc iter8 step1 [numeric]: MISMATCH: explanation 정답='2', choices[2]='3' (정답은 choices[1]에 존재)",
+        "python_gc iter14 step0 [numeric]: MISMATCH: explanation 정답='1', choices[2]='3' (정답은 choices[0]에 존재)",
+        "python_gc iter15 step0 [numeric]: MISMATCH: explanation 정답='1', choices[2]='3' (정답은 choices[0]에 존재)"
+      ]
+    }
+  ]
+}
