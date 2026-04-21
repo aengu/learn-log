@@ -133,21 +133,24 @@ const selectedIndices = [];
 
 function selectChoice(btn) {
     const stepCard = btn.closest('.step-card');
-    const stepIdx = parseInt(stepCard.dataset.step);
-    const correctIdx = parseInt(stepCard.dataset.correct);
-    const choiceIdx = parseInt(btn.dataset.choice);
+    const stepIdx = parseInt(stepCard.dataset.step);      // 현재 스텝 번호 (0-based)
+    const correctIdx = parseInt(stepCard.dataset.correct); // 이 스텝의 정답 버튼 인덱스 (HTML에 고정)
+    const choiceIdx = parseInt(btn.dataset.choice);        // 사용자가 클릭한 버튼 인덱스 (0-based)
 
     // 이미 답변했으면 무시
     if (selectedIndices[stepIdx] !== undefined) return;
     selectedIndices[stepIdx] = choiceIdx;
 
-    // 모든 버튼 비활성화
+    // 모든 버튼을 순회하며 색상 표시
     stepCard.querySelectorAll('.choice-btn').forEach((b, i) => {
+        // i: 현재 순회 중인 버튼의 인덱스 (0, 1, 2, 3 순서대로)
         b.disabled = true;
         if (i === correctIdx) {
+            // 정답 버튼 → 초록 (사용자가 선택했든 안 했든)
             b.classList.remove('btn-outline');
             b.classList.add('btn-success');
         } else if (i === choiceIdx && choiceIdx !== correctIdx) {
+            // 사용자가 선택한 오답 버튼 → 빨강
             b.classList.remove('btn-outline');
             b.classList.add('btn-error');
         }

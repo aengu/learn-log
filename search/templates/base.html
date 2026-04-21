@@ -101,6 +101,11 @@
     {% block content %}{% endblock %}
 
     <script>
+        // HTMX 요청마다 CSRF 토큰 헤더 자동 추가
+        document.body.addEventListener('htmx:configRequest', function(evt) {
+            evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+        });
+
         // HTMX 요청 후 코드 하이라이팅 적용
         document.body.addEventListener('htmx:afterSwap', function(event) {
             event.detail.target.querySelectorAll('pre code').forEach((block) => {
