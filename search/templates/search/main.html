@@ -6,6 +6,17 @@
 <div class="min-h-screen flex flex-col">
     <!-- Main Content -->
     <main class="flex-1 container mx-auto max-w-4xl px-4 py-8">
+        <!-- 불꽃 메시지 배너 -->
+        {% if streak.current_streak > 0 %}
+        <div class="alert alert-success mb-6">
+            <span>🔥 {{ streak.current_streak }}일 연속 학습 중!</span>
+        </div>
+        {% else %}
+        <div class="alert alert-warning mb-6">
+            <span>오늘부터 다시 시작해볼까요?</span>
+        </div>
+        {% endif %}
+
         <!-- Search Form Card -->
         <div class="card bg-base-100 shadow-xl mb-8">
             <div class="card-body">

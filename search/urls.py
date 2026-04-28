@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import MainPageView, LogListView, ExerciseListView, ExerciseDetailView
+from .views import MainPageView, LogListView, ExerciseListView, ExerciseDetailView, StatsView
 from .api_views import (
     QueryHTMXView,
     QuerySSEView,
@@ -17,6 +17,7 @@ urlpatterns = [
     path('logs/', LogListView.as_view(), name='log_list'),
     path('exercises/', ExerciseListView.as_view(), name='exercise_list'),
     path('exercises/<int:pk>/', ExerciseDetailView.as_view(), name='exercise_detail'),
+    path('stats/', StatsView.as_view(), name='stats'),
 
     # Query API
     path('api/query/', QueryHTMXView.as_view(), name='query_api_html'),

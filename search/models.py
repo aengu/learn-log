@@ -219,3 +219,45 @@ class ExerciseAttempt(models.Model):
     def __str__(self):
         status = "정답" if self.is_correct else ("오답" if self.is_correct is False else "채점중")
         return f"{self.exercise} - {status}"
+
+
+class Streak(models.Model):
+    """
+    연속 학습 기록 (싱글턴 — pk=1 하나만 사용).
+    학습 로그 작성 또는 복습 정답 시 시그널을 통해 자동 갱신된다.
+    """
+    current_streak = models.PositiveIntegerField(default=0)
+    longest_streak = models.PositiveIntegerField(default=0)
+    last_active_date = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "스트릭"
+        verbose_name_plural = "스트릭"
+
+    def __str__(self):
+        return f"🔥 {self.current_streak}일 연속 (최장 {self.longest_streak}일)"
+
+    @classmethod
+    def load(cls):
+        """싱글턴 인스턴스 반환 (없으면 생성)"""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def record_activity(self, date=None):
+        """
+        활동 기록. 연속 학습 판정 규칙:
+        - 같은 날 중복 호출 → 무시
+        - 어제 활동이 있었으면 → streak + 1
+        - 그 외 (첫 활동 또는 하루 이상 빠짐) → streak = 1
+        """
+        today = date or timezone.now().date()
+        if self.last_active_date == today:
+            return  # 같은 날 중복 무시
+        if self.last_active_date == today - timezone.timedelta(days=1):
+            self.current_streak += 1  # 연속 유지
+        else:
+            self.current_streak = 1  # 리셋
+        self.longest_streak = max(self.longest_streak, self.current_streak)
+        self.last_active_date = today
+        self.save(update_fields=['current_streak', 'longest_streak', 'last_active_date'])

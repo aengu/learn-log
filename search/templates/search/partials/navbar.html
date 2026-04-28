@@ -16,6 +16,12 @@
             <a href="{% url 'search:exercise_list' %}" class="btn btn-ghost btn-sm">복습하기</a>
         {% endif %}
 
+        {% if url_name == 'stats' %}
+            <span class="btn btn-ghost btn-sm pointer-events-none opacity-40">통계</span>
+        {% else %}
+            <a href="{% url 'search:stats' %}" class="btn btn-ghost btn-sm">통계</a>
+        {% endif %}
+
         {% if url_name == 'main' %}
             <span class="btn btn-primary btn-sm pointer-events-none opacity-40">새 질문</span>
         {% else %}

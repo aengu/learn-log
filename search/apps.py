@@ -10,7 +10,8 @@ class SearchConfig(AppConfig):
     name = 'search'
 
     def ready(self):
-        """render 환경이면 keep alive 데몬 실행"""
+        import search.signals  # noqa: F401
+
         render_url = os.environ.get('RENDER_EXTERNAL_URL')
         if not render_url:
             return

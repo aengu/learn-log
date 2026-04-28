@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+
+{% block title %}통계 - Learn Log{% endblock %}
+
+{% block extra_head %}
+<style>
+    .heatmap-grid {
+        display: grid;
+        grid-template-columns: repeat(53, 1fr);
+        grid-template-rows: repeat(7, 1fr);
+        gap: 3px;
+    }
+    .heatmap-cell {
+        width: 14px;
+        height: 14px;
+        border-radius: 2px;
+        cursor: pointer;
+    }
+    .heatmap-level-0 { background: oklch(var(--b3)); }
+    .heatmap-level-1 { background: #9be9a8; }
+    .heatmap-level-2 { background: #40c463; }
+    .heatmap-level-3 { background: #30a14e; }
+    .heatmap-level-4 { background: #216e39; }
+
+    .month-labels {
+        display: grid;
+        grid-template-columns: repeat(53, 1fr);
+        gap: 3px;
+        margin-bottom: 4px;
+    }
+    .month-labels span {
+        font-size: 0.7rem;
+        color: oklch(var(--bc) / 0.5);
+    }
+    .day-labels {
+        display: grid;
+        grid-template-rows: repeat(7, 1fr);
+        gap: 3px;
+        margin-right: 8px;
+    }
+    .day-labels span {
+        font-size: 0.7rem;
+        color: oklch(var(--bc) / 0.5);
+        height: 14px;
+        display: flex;
+        align-items: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="min-h-screen">
+    <main class="container mx-auto max-w-5xl px-4 py-8">
+        <h1 class="text-2xl font-bold mb-6">학습 통계</h1>
+
+        <!-- 불꽃 카드 + 요약 카드 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <!-- 불꽃 -->
+            <div class="stat bg-base-100 rounded-box shadow">
+                <div class="stat-figure text-primary text-4xl">
+                    {% if streak.current_streak > 0 %}🔥{% else %}💤{% endif %}
+                </div>
+                <div class="stat-title">연속 학습</div>
+                <div class="stat-value text-primary">{{ streak.current_streak }}일</div>
+                <div class="stat-desc">
+                    {% if streak.current_streak > 0 %}
+                        계속 이어가세요!
+                    {% else %}
+                        오늘부터 다시 시작해볼까요?
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- 최장 기록 -->
+            <div class="stat bg-base-100 rounded-box shadow">
+                <div class="stat-figure text-secondary text-4xl">🏆</div>
+                <div class="stat-title">최장 기록</div>
+                <div class="stat-value text-secondary">{{ streak.longest_streak }}일</div>
+                <div class="stat-desc">지금까지 최고 기록</div>
+            </div>
+
+            <!-- 총 로그 -->
+            <div class="stat bg-base-100 rounded-box shadow">
+                <div class="stat-figure text-accent text-4xl">📝</div>
+                <div class="stat-title">학습 로그</div>
+                <div class="stat-value text-accent">{{ total_logs }}</div>
+                <div class="stat-desc">총 질문 수</div>
+            </div>
+
+            <!-- 복습 성적 -->
+            <div class="stat bg-base-100 rounded-box shadow">
+                <div class="stat-figure text-info text-4xl">✅</div>
+                <div class="stat-title">복습 성적</div>
+                <div class="stat-value text-info">{{ accuracy }}%</div>
+                <div class="stat-desc">총 {{ total_attempts }}회 시도</div>
+            </div>
+        </div>
+
+        <!-- Heatmap -->
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-lg mb-4">학습 활동 (최근 1년)</h2>
+                <div class="overflow-x-auto">
+                    <div class="flex">
+                        <!-- 요일 라벨 -->
+                        <div class="day-labels">
+                            <span></span>
+                            <span>월</span>
+                            <span></span>
+                            <span>수</span>
+                            <span></span>
+                            <span>금</span>
+                            <span></span>
+                        </div>
+                        <!-- 그리드 -->
+                        <div>
+                            <div id="month-labels" class="month-labels"></div>
+                            <div id="heatmap" class="heatmap-grid"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- 범례 -->
+                <div class="flex items-center gap-2 mt-4 text-sm text-base-content/60">
+                    <span>적음</span>
+                    <div class="heatmap-cell heatmap-level-0"></div>
+                    <div class="heatmap-cell heatmap-level-1"></div>
+                    <div class="heatmap-cell heatmap-level-2"></div>
+                    <div class="heatmap-cell heatmap-level-3"></div>
+                    <div class="heatmap-cell heatmap-level-4"></div>
+                    <span>많음</span>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const data = {{ heatmap_json|safe }};
+    const grid = document.getElementById('heatmap');
+    const monthLabels = document.getElementById('month-labels');
+
+    // 시작 요일 맞추기: data[0]의 요일에 따라 빈 셀 추가
+    const firstDate = new Date(data[0].date);
+    const startDow = firstDate.getDay(); // 0=일, 1=월, ...
+    for (let i = 0; i < startDow; i++) {
+        const empty = document.createElement('div');
+        empty.style.width = '14px';
+        empty.style.height = '14px';
+        grid.appendChild(empty);
+    }
+
+    // 월 라벨 계산
+    let lastMonth = -1;
+    let weekIndex = 0;
+    const monthNames = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+    const monthPositions = {};
+
+    data.forEach((item, i) => {
+        const d = new Date(item.date);
+        const col = Math.floor((startDow + i) / 7);
+        const month = d.getMonth();
+        if (month !== lastMonth) {
+            monthPositions[col] = monthNames[month];
+            lastMonth = month;
+        }
+    });
+
+    // 월 라벨 렌더링
+    const totalCols = Math.ceil((startDow + data.length) / 7);
+    for (let c = 0; c < totalCols; c++) {
+        const span = document.createElement('span');
+        span.textContent = monthPositions[c] || '';
+        monthLabels.appendChild(span);
+    }
+
+    // 셀 렌더링
+    data.forEach(item => {
+        const cell = document.createElement('div');
+        cell.className = `heatmap-cell heatmap-level-${item.level}`;
+        cell.title = `${item.date}: ${item.count}건`;
+
+        // DaisyUI tooltip
+        cell.classList.add('tooltip', 'tooltip-top');
+        cell.setAttribute('data-tip', `${item.date}: ${item.count}건`);
+
+        grid.appendChild(cell);
+    });
+})();
+</script>
+{% endblock %}

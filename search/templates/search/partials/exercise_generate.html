@@ -4,10 +4,51 @@
     <form hx-post="{% url 'search:exercise_generate' log.id %}"
           hx-target="#exercise-gen-feedback-{{ log.id }}"
           hx-swap="innerHTML"
-          hx-indicator="#exercise-gen-indicator-{{ log.id }}">
+          hx-indicator="#exercise-gen-indicator-{{ log.id }}"
+          class="flex items-center gap-1">
         {% csrf_token %}
         <input type="hidden" name="exercise_type" value="{{ type_value }}">
         <button type="submit" class="btn btn-sm btn-outline">{{ type_label }}</button>
+        {% if type_value == 'generation_compare' %}
+        <div class="dropdown dropdown-hover dropdown-top">
+            <label tabindex="0" class="cursor-pointer text-base-content/40 hover:text-base-content/70">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </label>
+            <div tabindex="0" class="dropdown-content z-[1] card card-compact w-64 p-2 shadow bg-base-100 border border-base-300">
+                <div class="card-body">
+                    <p class="text-xs">내가 먼저 답을 작성한 뒤, AI의 모범답안과 비교하며 빠뜨린 부분을 확인합니다.</p>
+                </div>
+            </div>
+        </div>
+        {% elif type_value == 'path_trace' %}
+        <div class="dropdown dropdown-hover dropdown-top">
+            <label tabindex="0" class="cursor-pointer text-base-content/40 hover:text-base-content/70">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </label>
+            <div tabindex="0" class="dropdown-content z-[1] card card-compact w-64 p-2 shadow bg-base-100 border border-base-300">
+                <div class="card-body">
+                    <p class="text-xs">코드의 실행 흐름을 한 줄씩 따라가며 변수 값의 변화를 추적하는 문제입니다.</p>
+                </div>
+            </div>
+        </div>
+        {% elif type_value == 'retrieval_checkin' %}
+        <div class="dropdown dropdown-hover dropdown-top">
+            <label tabindex="0" class="cursor-pointer text-base-content/40 hover:text-base-content/70">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </label>
+            <div tabindex="0" class="dropdown-content z-[1] card card-compact w-64 p-2 shadow bg-base-100 border border-base-300">
+                <div class="card-body">
+                    <p class="text-xs">핵심 개념을 기억에서 꺼내 빈칸을 채우는 인출 연습 문제입니다.</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </form>
     {% endfor %}
     <span id="exercise-gen-indicator-{{ log.id }}" class="htmx-indicator loading loading-spinner loading-sm self-center"></span>
