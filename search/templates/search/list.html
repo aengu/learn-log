@@ -6,18 +6,18 @@
 <div class="min-h-screen flex flex-col">
     <!-- Main Content -->
     <main class="flex-1 container mx-auto max-w-6xl px-4 py-8">
-        <div class="flex items-center justify-between mb-6">
-            <h1 class="text-2xl font-bold">학습 로그</h1>
-            <div class="flex items-center gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+            <h1 class="text-lg sm:text-2xl font-bold">학습 로그</h1>
+            <div class="flex flex-wrap items-center gap-2">
                 <form action="" method="get" class="join">
                     <input type="text" name="q" value="{{ search_query }}"
                            placeholder="검색..."
-                           class="input input-bordered input-sm join-item w-48">
+                           class="input input-bordered input-sm join-item w-32 sm:w-48">
                     {% if active_tags_str %}<input type="hidden" name="tag" value="{{ active_tags_str }}">{% endif %}
                     <button type="submit" class="btn btn-sm join-item">검색</button>
                 </form>
                 <button class="btn btn-sm {% if bookmarked %}btn-warning{% else %}btn-ghost{% endif %}"
-                        onclick="toggleBookmarkFilter()">★ 북마크</button>
+                        onclick="toggleBookmarkFilter()">★</button>
                 {% if search_query or active_tags or bookmarked %}
                 <a href="{% url 'search:log_list' %}" class="btn btn-ghost btn-sm">초기화</a>
                 {% endif %}
@@ -76,9 +76,9 @@
 
 <!-- Detail Modal -->
 <dialog id="detail-modal" class="modal">
-    <div class="modal-box max-w-4xl max-h-[90vh] overflow-y-auto">
+    <div class="modal-box max-w-4xl max-h-[90vh] overflow-y-auto pt-10">
         <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 z-10">✕</button>
         </form>
         <div id="modal-content">
             <div class="flex justify-center py-12">
@@ -87,14 +87,15 @@
         </div>
     </div>
     <!-- 이전/다음 네비게이션 화살표 -->
-    <!-- 모바일: 좌우 5% -->
-    <!-- 태블릿: 좌우 15% -->
-    <!-- 데스크탑: 좌우 10% -->
+    <!-- 모바일: 모달 하단에 가로 배치 -->
+    <!-- 데스크톱: 모달 좌우에 배치 -->
     <button id="modal-prev-btn"
-            class="btn btn-circle bg-base-100/80 hover:bg-base-100 shadow-lg fixed left-[5%] md:left-[15%] lg:left-[10%] top-1/2 -translate-y-1/2 z-[100] hidden text-lg"
+            class="btn btn-circle bg-base-100/80 hover:bg-base-100 shadow-lg fixed top-1/2 -translate-y-1/2 z-[100] hidden text-lg
+                   left-2 md:left-[calc(50%-28rem)] lg:left-[calc(50%-30rem)]"
             onclick="navigateLog('prev')">❮</button>
     <button id="modal-next-btn"
-            class="btn btn-circle bg-base-100/80 hover:bg-base-100 shadow-lg fixed right-[5%] md:right-[15%] lg:right-[10%] top-1/2 -translate-y-1/2 z-[100] hidden text-lg"
+            class="btn btn-circle bg-base-100/80 hover:bg-base-100 shadow-lg fixed top-1/2 -translate-y-1/2 z-[100] hidden text-lg
+                   right-2 md:right-[calc(50%-28rem)] lg:right-[calc(50%-30rem)]"
             onclick="navigateLog('next')">❯</button>
     <form method="dialog" class="modal-backdrop">
         <button>close</button>

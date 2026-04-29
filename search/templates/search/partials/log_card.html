@@ -1,9 +1,9 @@
-<div class="log-card card bg-base-100 shadow-xl cursor-pointer hover:shadow-2xl transition-shadow"
+<div class="log-card card bg-base-100 shadow-md cursor-pointer hover:shadow-lg transition-shadow"
      data-log-id="{{ log.id }}"
      onclick="openLogDetail({{ log.id }})">
-    <div class="card-body">
+    <div class="card-body p-4">
         <div class="flex justify-between items-start">
-            <h2 class="card-title text-base line-clamp-2 flex-1">{{ log.query }}</h2>
+            <h2 class="card-title text-sm sm:text-base line-clamp-2 flex-1">{{ log.query }}</h2>
             <span class="cursor-pointer text-lg ml-2 {% if log.is_bookmarked %}text-warning{% else %}text-base-content/20{% endif %}"
                   data-bookmark-id="{{ log.id }}"
                   onclick="event.stopPropagation(); toggleBookmark({{ log.id }})">★</span>

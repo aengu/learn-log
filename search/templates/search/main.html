@@ -23,17 +23,17 @@
                 <h2 class="card-title text-lg">개발 관련 질문을 입력하세요</h2>
                 <form id="query-form">
                     {% csrf_token %}
-                    <div class="join w-full mt-2">
+                    <div class="flex flex-col sm:flex-row gap-2 mt-2">
                         <input
                             type="text"
                             name="query"
                             id="query-input"
                             placeholder="예: docker bridge network와 host network 차이"
-                            class="input input-bordered join-item flex-1"
+                            class="input input-bordered w-full"
                             required
                             minlength="5"
                         />
-                        <button type="submit" id="submit-btn" class="btn btn-primary join-item">
+                        <button type="submit" id="submit-btn" class="btn btn-primary sm:w-auto w-full">
                             검색
                         </button>
                     </div>

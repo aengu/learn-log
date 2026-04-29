@@ -1,6 +1,6 @@
-<div class="flex justify-between items-start">
+<div class="flex justify-between items-start gap-2 pr-8">
     <h3 class="font-bold text-lg mb-2 flex-1">{{ log.query }}</h3>
-    <span class="cursor-pointer text-xl {% if log.is_bookmarked %}text-warning{% else %}text-base-content/20{% endif %}"
+    <span class="cursor-pointer text-xl shrink-0 {% if log.is_bookmarked %}text-warning{% else %}text-base-content/20{% endif %}"
           data-bookmark-id="{{ log.id }}"
           onclick="toggleBookmark({{ log.id }})">★</span>
 </div>

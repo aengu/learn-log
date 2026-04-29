@@ -1,9 +1,52 @@
 {% with url_name=request.resolver_match.url_name %}
-<div class="navbar bg-base-100 shadow-sm">
-    <div class="flex-1">
-        <a href="{% url 'search:main' %}" class="btn btn-ghost text-xl">Learn Log</a>
+<div class="navbar bg-base-100 shadow-sm px-2 sm:px-4">
+    <div class="flex-1 min-w-0">
+        <a href="{% url 'search:main' %}" class="btn btn-ghost text-lg sm:text-xl px-2">Learn Log</a>
     </div>
-    <div class="flex-none gap-2 flex">
+
+    <!-- 모바일: 햄버거 드롭다운 -->
+    <div class="flex-none sm:hidden">
+        <div class="dropdown dropdown-end">
+            <label tabindex="0" class="btn btn-ghost btn-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </label>
+            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40">
+                <li>
+                    {% if url_name == 'log_list' %}
+                        <span class="opacity-40">질문기록</span>
+                    {% else %}
+                        <a href="{% url 'search:log_list' %}">질문기록</a>
+                    {% endif %}
+                </li>
+                <li>
+                    {% if url_name == 'exercise_list' or url_name == 'exercise_detail' %}
+                        <span class="opacity-40">복습하기</span>
+                    {% else %}
+                        <a href="{% url 'search:exercise_list' %}">복습하기</a>
+                    {% endif %}
+                </li>
+                <li>
+                    {% if url_name == 'stats' %}
+                        <span class="opacity-40">통계</span>
+                    {% else %}
+                        <a href="{% url 'search:stats' %}">통계</a>
+                    {% endif %}
+                </li>
+                <li>
+                    {% if url_name == 'main' %}
+                        <span class="opacity-40">새 질문</span>
+                    {% else %}
+                        <a href="{% url 'search:main' %}">새 질문</a>
+                    {% endif %}
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- 데스크톱: 기존 가로 버튼 -->
+    <div class="flex-none gap-2 hidden sm:flex">
         {% if url_name == 'log_list' %}
             <span class="btn btn-ghost btn-sm pointer-events-none opacity-40">질문기록</span>
         {% else %}
