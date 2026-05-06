@@ -6,9 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
-    postgresql-client \
+    curl ca-certificates gnupg \
     build-essential \
     libpq-dev \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y postgresql-client-18 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
