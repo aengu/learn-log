@@ -186,6 +186,9 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
                                 newScript.textContent = script.textContent;
                                 script.parentNode.replaceChild(newScript, script);
                             });
+
+                            // HTMX가 동적 삽입된 폼(연습문제 생성 등)을 인식하도록 처리
+                            htmx.process(resultContainer);
                         }
                     }
                 }

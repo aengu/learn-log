@@ -112,6 +112,25 @@
                 hljs.highlightElement(block);
             });
         });
+
+        // 연습문제 생성 버튼 spinner
+        document.body.addEventListener('htmx:beforeRequest', function(evt) {
+            const form = evt.detail.elt.closest('form');
+            if (!form || !form.querySelector('[name="exercise_type"]')) return;
+            const btn = form.querySelector('button[type="submit"]');
+            if (!btn) return;
+            btn.disabled = true;
+            btn.dataset.originalText = btn.textContent;
+            btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 생성 중...';
+        });
+        document.body.addEventListener('htmx:afterRequest', function(evt) {
+            const form = evt.detail.elt.closest('form');
+            if (!form || !form.querySelector('[name="exercise_type"]')) return;
+            const btn = form.querySelector('button[type="submit"]');
+            if (!btn || !btn.dataset.originalText) return;
+            btn.disabled = false;
+            btn.textContent = btn.dataset.originalText;
+        });
     </script>
     {% block extra_js %}{% endblock %}
 </body>
