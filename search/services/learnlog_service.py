@@ -1,4 +1,5 @@
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 
 from groq import Groq
 from mistralai.client import Mistral
@@ -41,13 +42,14 @@ class LearnlogService:
         # 2. AI 답변 생성
         ai_answer = self.generate_answer(user_query, search_results)
 
-        # 3. 태그 자동 추출
-        tag_names = self.extract_tags(user_query, ai_answer)
+        # 3. 태그 추출 + 마크다운 변환 (병렬)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            tags_future = executor.submit(self.extract_tags, user_query, ai_answer)
+            md_future = executor.submit(self.convert_to_markdown, user_query, ai_answer, search_results)
+            tag_names = tags_future.result()
+            markdown = md_future.result()
 
-        # 4. 마크다운 변환
-        markdown = self.convert_to_markdown(user_query, ai_answer, search_results)
-
-        # 5. DB 저장
+        # 4. DB 저장
         return self.save_learning_log(user_query, ai_answer, markdown, search_results, tag_names)
 
     def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names):
@@ -127,37 +129,27 @@ class LearnlogService:
             print(f"검색 오류: {e}")
             return {'results': []}
 
-    DEFAULT_INSTRUCTIONS = textwrap.dedent("""
-        - 한국어로 작성 (한자 사용 금지, 한글로만 표기)
-        - 기술적으로 정확하게
-        - 개념 설명 → 동작 원리 → 코드 예시 → 주의사항 순서로 구성
-        - 코드 예시는 반드시 포함하고, 각 줄에 주석으로 설명 추가
-        - 관련 개념이 있으면 함께 설명 (예: A를 쓸 때 B도 알아야 하는 경우)
-        - 핵심 포인트는 빠뜨리지 말고 충분히 상세하게
-    """).strip()
+    DEFAULT_INSTRUCTIONS = "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함."
 
     def generate_answer(self, query, search_results, custom_instructions=None):
         """
         Mistral API로 AI 답변 생성
         """
-        context = "\n\n".join([
-            f"출처: {r.get('url', 'N/A')}\n내용: {r.get('content', '')[:400]}"
-            for r in search_results.get('results', [])[:3]
+        context = "\n".join([
+            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
+            for r in search_results.get('results', [])[:2]
         ])
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
 
         prompt = textwrap.dedent(f"""
-            당신은 친절하고 정확한 개발 전문가입니다.
+            개발 질문에 한국어로 답변하세요.
 
-            사용자 질문: {query}
+            질문: {query}
 
-            참고 자료:
-            {context if context else "참고 자료 없음"}
+            참고:
+            {context if context else "없음"}
 
-            위 참고 자료를 바탕으로 질문에 대한 명확하고 상세한 답변을 작성해주세요.
-
-            요구사항:
             {instructions}
         """).strip()
 
@@ -172,6 +164,43 @@ class LearnlogService:
         except Exception as e:
             print(f"AI 답변 생성 오류: {e}")
             return "답변 생성 중 오류가 발생했습니다."
+
+    def generate_answer_stream(self, query, search_results, custom_instructions=None):
+        """
+        Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield
+        """
+        context = "\n".join([
+            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
+            for r in search_results.get('results', [])[:2]
+        ])
+
+        instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
+
+        prompt = textwrap.dedent(f"""
+            개발 질문에 한국어로 답변하세요.
+
+            질문: {query}
+
+            참고:
+            {context if context else "없음"}
+
+            {instructions}
+        """).strip()
+
+        try:
+            stream = self.mistral_client.chat.stream(
+                model=self.ANSWER_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=2000
+            )
+            for event in stream:
+                chunk = event.data.choices[0].delta.content
+                if chunk:
+                    yield chunk
+        except Exception as e:
+            print(f"AI 답변 스트리밍 오류: {e}")
+            yield "답변 생성 중 오류가 발생했습니다."
 
     def extract_tags(self, query, ai_response):
         """

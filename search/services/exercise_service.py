@@ -47,83 +47,46 @@ class ExerciseService:
 
     def _gen_generation_compare(self, log):
         prompt = textwrap.dedent(f"""
-            다음 학습 내용을 바탕으로 "생성→비교" 유형 연습문제를 만들어주세요.
+            아래 학습 내용으로 "생성→비교" 연습문제를 만들어주세요.
+            학습자가 먼저 답변을 쓰고 모범 답안과 비교하는 유형입니다.
 
-            학습 내용:
             질문: {log.query}
-            답변: {log.ai_response[:1000]}
+            답변: {log.ai_response[:500]}
 
-            "생성→비교" 유형: 학습자가 먼저 자신의 답변을 작성하고 AI 모범 답안과 비교합니다.
-
-            JSON으로만 응답하세요 (```없이):
-            {{
-              "question": "학습자에게 물어볼 질문 (핵심 개념을 직접 설명하게 유도)",
-              "model_answer": "모범 답안 (핵심 포인트를 포함한 상세한 답변)"
-            }}
+            JSON으로만 응답 (```없이):
+            {{"question": "핵심 개념을 설명하게 유도하는 질문", "model_answer": "핵심 포인트 포함 모범 답안"}}
         """).strip()
         return self._call_mistral_json(prompt)
 
     def _gen_path_trace(self, log):
         prompt = textwrap.dedent(f"""
-            다음 학습 내용을 바탕으로 "경로추적" 유형 연습문제를 만들어주세요.
+            아래 학습 내용으로 "경로추적" 연습문제를 만들어주세요.
+            실행 흐름을 단계별로 추적하며 객관식으로 답하는 유형입니다. steps는 3~5개.
 
-            학습 내용:
             질문: {log.query}
-            답변: {log.ai_response[:1000]}
+            답변: {log.ai_response[:500]}
 
-            "경로추적" 유형: 코드나 시스템의 실행 흐름을 단계별로 추적하며 각 단계에서 객관식으로 답합니다.
-
-            JSON으로만 응답하세요 (```없이):
-            {{
-              "scenario": "추적할 시나리오 설명",
-              "steps": [
-                {{
-                  "question": "이 단계에서 무슨 일이 일어나는가?",
-                  "choices": ["선택지A", "선택지B", "선택지C", "선택지D"],
-                  "correct_index": 0,
-                  "explanation": "왜 이것이 정답인지 설명"
-                }}
-              ]
-            }}
-            steps는 3~5개로 구성하세요.
+            JSON으로만 응답 (```없이):
+            {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "explanation": "설명"}}]}}
 
             ⚠️ correct_index 규칙 (반드시 준수):
-            - correct_index는 choices 배열의 0-based 인덱스입니다. (첫 요소 = 0)
-            - choices[correct_index]의 값이 정답 값과 정확히 같아야 합니다.
-            - 정답 '값(value)'과 '인덱스(index)'는 다릅니다.
-              특히 choices가 1부터 시작하는 경우 헷갈리기 쉬우니 아래 예시를 반드시 확인하세요.
-
-              예 A: choices=["1","2","3","4"], 정답 값="2"
-                    → choices[1]="2" → correct_index = 1 ✅
-                    → choices[2]="3" → correct_index = 2 는 틀림 ❌
-
-              예 B: choices=["1","2","3","4"], 정답 값="1"
-                    → choices[0]="1" → correct_index = 0 ✅
-
-            - correct_index를 정한 뒤, choices[correct_index]를 꺼내서 정답 값과 같은지 다시 확인하세요.
+            - choices 배열의 0-based 인덱스 (첫 요소 = 0)
+            - choices[correct_index]가 정답 값과 정확히 같아야 함
+            - 예: choices=["1","2","3","4"], 정답="2" → correct_index=1 (choices[1]="2")
+            - correct_index를 정한 뒤 choices[correct_index]로 검증하세요.
         """).strip()
         return self._call_mistral_json(prompt)
 
     def _gen_retrieval_checkin(self, log):
         prompt = textwrap.dedent(f"""
-            다음 학습 내용을 바탕으로 "인출 체크인" 유형 연습문제를 만들어주세요.
+            아래 학습 내용으로 "인출 체크인" 연습문제를 만들어주세요.
+            핵심 개념을 기억에서 꺼내는 유형입니다. key_points는 3~5개.
 
-            학습 내용:
             질문: {log.query}
-            답변: {log.ai_response[:1000]}
+            답변: {log.ai_response[:500]}
 
-            "인출 체크인" 유형: 핵심 개념을 기억에서 꺼내는 연습. 학습자가 답변을 쓰면 AI가 핵심 포인트를 체크합니다.
-
-            JSON으로만 응답하세요 (```없이):
-            {{
-              "question": "기억에서 꺼내게 하는 질문",
-              "key_points": [
-                "체크할 핵심 포인트 1",
-                "체크할 핵심 포인트 2",
-                "체크할 핵심 포인트 3"
-              ]
-            }}
-            key_points는 3~5개로 구성하세요.
+            JSON으로만 응답 (```없이):
+            {{"question": "기억에서 꺼내게 하는 질문", "key_points": ["핵심 포인트1", "핵심 포인트2", "핵심 포인트3"]}}
         """).strip()
         return self._call_mistral_json(prompt)
 
@@ -178,18 +141,14 @@ class ExerciseService:
     def _evaluate_generation_compare(self, exercise, user_answer):
         user_text = user_answer.get('text', '')
         prompt = textwrap.dedent(f"""
-            학습자의 답변과 모범 답안을 비교하여 평가해주세요.
+            학습자 답변을 모범 답안과 비교 평가하세요.
 
             질문: {exercise.content.get('question', '')}
             모범 답안: {exercise.content.get('model_answer', '')}
             학습자 답변: {user_text}
 
-            JSON으로만 응답하세요 (```없이):
-            {{
-              "score": 0.0~1.0,
-              "is_correct": true/false,
-              "feedback": "아래 구조로 한국어로 작성:\n1. 맞게 설명한 부분 (what)\n2. 놓친 부분\n3. 왜 그렇게 동작하는지 (why) — 학습자가 설명했으면 인정, 안 했으면 짚어주기"
-            }}
+            JSON으로만 응답 (```없이):
+            {{"score": 0.0~1.0, "is_correct": true/false, "feedback": "1. 맞은 부분 2. 놓친 부분 3. 왜 그런지 (한국어)"}}
         """).strip()
         try:
             response = self.mistral_client.chat.complete(
@@ -213,18 +172,15 @@ class ExerciseService:
         key_points = exercise.content.get('key_points', [])
         points_str = '\n'.join(f"- {p}" for p in key_points)
         prompt = textwrap.dedent(f"""
-            학습자의 답변에서 핵심 포인트가 포함됐는지 확인해주세요.
+            학습자 답변에서 핵심 포인트 포함 여부를 확인하세요.
 
             질문: {exercise.content.get('question', '')}
             핵심 포인트:
             {points_str}
             학습자 답변: {user_text}
 
-            JSON으로만 응답하세요 (```없이):
-            {{
-              "covered_points": [핵심 포인트와 동일한 순서로 true/false 목록],
-              "feedback": "어떤 포인트를 잘 다뤘고 무엇이 빠졌는지 한국어로 설명"
-            }}
+            JSON으로만 응답 (```없이):
+            {{"covered_points": [true/false 목록], "feedback": "잘 다룬 점과 빠진 점 (한국어)"}}
         """).strip()
         try:
             response = self.mistral_client.chat.complete(

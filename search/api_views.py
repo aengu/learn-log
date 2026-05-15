@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from django.shortcuts import render
 from django.views import View
 from django.http import StreamingHttpResponse, HttpResponse, JsonResponse
@@ -66,19 +67,24 @@ class QuerySSEView(View):
         try:
             service = LearnlogService()
 
-            yield self._sse_event('progress', {'step': 1, 'total': 5, 'message': f'질문 받음: {query}'})
-
+            yield self._sse_event('progress', {'step': 1, 'total': 4, 'message': '공식 문서 검색 중...'})
             search_results = service.search_official_docs(query)
-            yield self._sse_event('progress', {'step': 2, 'total': 5, 'message': f'검색 완료: {len(search_results.get("results", []))}개 결과'})
 
-            ai_answer = service.generate_answer(query, search_results, custom_instructions)
-            yield self._sse_event('progress', {'step': 3, 'total': 5, 'message': f'AI 답변 생성 완료 ({len(ai_answer)}자)'})
+            yield self._sse_event('progress', {'step': 2, 'total': 4, 'message': 'AI 답변 생성 중...'})
+            ai_answer_chunks = []
+            for chunk in service.generate_answer_stream(query, search_results, custom_instructions):
+                ai_answer_chunks.append(chunk)
+                yield self._sse_event('stream_token', {'token': chunk})
+            ai_answer = ''.join(ai_answer_chunks).strip()
 
-            tag_names = service.extract_tags(query, ai_answer)
-            yield self._sse_event('progress', {'step': 4, 'total': 5, 'message': f'태그 추출 완료: {tag_names}'})
+            yield self._sse_event('progress', {'step': 3, 'total': 4, 'message': '태그 추출 + 마크다운 변환 중...'})
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                tags_future = executor.submit(service.extract_tags, query, ai_answer)
+                md_future = executor.submit(service.convert_to_markdown, query, ai_answer, search_results)
+                tag_names = tags_future.result()
+                markdown = md_future.result()
 
-            markdown = service.convert_to_markdown(query, ai_answer, search_results)
-            yield self._sse_event('progress', {'step': 5, 'total': 5, 'message': '마크다운 변환 완료'})
+            yield self._sse_event('progress', {'step': 4, 'total': 4, 'message': '저장 중...'})
 
             log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names)
 

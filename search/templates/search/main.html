@@ -65,11 +65,22 @@
                         <span class="loading loading-spinner loading-md text-primary"></span>
                         <span id="progress-message" class="text-sm">처리 중...</span>
                     </div>
-                    <progress id="progress-bar" class="progress progress-primary w-full" value="0" max="5"></progress>
+                    <progress id="progress-bar" class="progress progress-primary w-full" value="0" max="4"></progress>
                     <div class="flex justify-between text-xs text-base-content/60 mt-1">
                         <span>진행률</span>
                         <span id="progress-percent">0%</span>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Streaming Preview (답변 실시간 표시) -->
+        <div id="stream-preview" class="hidden mb-8">
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h3 class="card-title text-lg">AI 답변 생성 중...</h3>
+                    <div class="divider my-0"></div>
+                    <div class="markdown-body" id="stream-content"></div>
                 </div>
             </div>
         </div>
@@ -123,6 +134,10 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
     const progressPercent = document.getElementById('progress-percent');
     const resultContainer = document.getElementById('result-container');
 
+    const streamPreview = document.getElementById('stream-preview');
+    const streamContent = document.getElementById('stream-content');
+    let streamBuffer = '';
+
     // UI 초기화
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> 처리 중';
@@ -131,6 +146,18 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
     progressPercent.textContent = '0%';
     progressMessage.textContent = '처리 시작...';
     resultContainer.innerHTML = '';
+    streamPreview.classList.add('hidden');
+    streamContent.innerHTML = '';
+    streamBuffer = '';
+    let autoScroll = true;
+
+    // wheel/touch만 감지 → 확실한 사용자 입력
+    const onUserInteract = () => {
+        const atBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 100);
+        autoScroll = atBottom;
+    };
+    window.addEventListener('wheel', onUserInteract);
+    window.addEventListener('touchmove', onUserInteract);
 
     // FormData 생성
     const formData = new FormData();
@@ -154,6 +181,8 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
                 if (done) {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '검색';
+                    window.removeEventListener('wheel', onUserInteract);
+                    window.removeEventListener('touchmove', onUserInteract);
                     return;
                 }
 
@@ -161,15 +190,24 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
                 const lines = buffer.split('\n');
                 buffer = lines.pop(); // 마지막 불완전한 라인은 버퍼에 유지
 
+                let currentEvent = '';
                 for (const line of lines) {
                     if (line.startsWith('event:')) {
-                        const eventType = line.slice(7).trim();
+                        currentEvent = line.slice(7).trim();
                         continue;
                     }
                     if (line.startsWith('data:')) {
                         const data = JSON.parse(line.slice(5).trim());
 
-                        if (data.step !== undefined) {
+                        if (currentEvent === 'stream_token') {
+                            // 답변 토큰 실시간 표시
+                            streamPreview.classList.remove('hidden');
+                            streamBuffer += data.token;
+                            streamContent.innerHTML = marked.parse(streamBuffer);
+                            if (autoScroll) {
+                                streamPreview.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                            }
+                        } else if (data.step !== undefined) {
                             // progress 이벤트
                             progressBar.value = data.step;
                             progressPercent.textContent = Math.round((data.step / data.total) * 100) + '%';
@@ -177,8 +215,9 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
                         } else if (data.html !== undefined) {
                             // complete 또는 error 이벤트
                             progressContainer.classList.add('hidden');
+                            streamPreview.classList.add('hidden');
                             resultContainer.innerHTML = data.html;
-                            
+
                             // 마크다운 렌더링 실행 (result.html의 스크립트가 실행됨)
                             const scripts = resultContainer.querySelectorAll('script');
                             scripts.forEach(script => {
@@ -190,6 +229,7 @@ document.getElementById('query-form').addEventListener('submit', function(e) {
                             // HTMX가 동적 삽입된 폼(연습문제 생성 등)을 인식하도록 처리
                             htmx.process(resultContainer);
                         }
+                        currentEvent = '';
                     }
                 }
 
