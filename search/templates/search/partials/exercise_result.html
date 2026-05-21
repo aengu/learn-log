@@ -5,19 +5,41 @@
             <span class="text-3xl">{% if attempt.is_correct %}✅{% else %}❌{% endif %}</span>
             <div>
                 <p class="font-bold text-lg">
-                    {% if attempt.is_correct %}정답!{% else %}오답{% endif %}
+                    {% if attempt.is_correct %}통과!{% else %}복습 필요{% endif %}
                 </p>
                 <p class="text-sm text-base-content/60">
-                    점수: {{ attempt.score|floatformat:0 }}%
+                    점수: {% widthratio attempt.score 1 100 %}%
                     &nbsp;·&nbsp;
                     다음 복습: {{ exercise.review_interval }}일 후
                 </p>
             </div>
         </div>
 
-        <!-- AI 피드백 -->
-        {% if attempt.ai_feedback %}
+        {% if exercise.exercise_type != 'path_trace' and exercise.content.key_points %}
+        <!-- 빠뜨린 핵심 포인트 -->
+        {% with covered=attempt.user_answer.covered_indices|default:'' %}
         <div class="divider my-2"></div>
+        <p class="font-semibold text-sm mb-2">
+            {% if exercise.exercise_type == 'generation_compare' %}내가 빠뜨린 포인트{% else %}기억하지 못한 포인트{% endif %}
+        </p>
+        <div class="flex flex-wrap gap-2 mb-2">
+            {% for point in exercise.content.key_points %}
+            {% if forloop.counter0 in covered %}
+            <span class="badge badge-success gap-1 whitespace-normal h-auto py-1.5 text-left items-start max-w-full">✓ {{ point }}</span>
+            {% else %}
+            <span class="badge badge-error gap-1 whitespace-normal h-auto py-1.5 text-left items-start max-w-full">✗ {{ point }}</span>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endwith %}
+        {% endif %}
+
+        {% if attempt.ai_feedback %}
+        <!-- 피드백 / 회고 -->
+        <div class="divider my-2"></div>
+        <p class="font-semibold text-sm mb-2">
+            {% if exercise.exercise_type == 'path_trace' %}AI 피드백{% else %}📝 내 회고{% endif %}
+        </p>
         <div class="whitespace-pre-line text-sm leading-relaxed">{{ attempt.ai_feedback }}</div>
         {% endif %}
 
@@ -26,6 +48,21 @@
         <div class="divider my-2"></div>
         <p class="font-semibold text-sm mb-2">모범 답안</p>
         <div class="bg-base-200 rounded-lg p-4 text-sm whitespace-pre-line">{{ exercise.content.model_answer }}</div>
+        {% endif %}
+
+        {% if exercise.exercise_type != 'path_trace' %}
+        <!-- AI 한마디 (on-demand) -->
+        <div class="divider my-2"></div>
+        <div id="coach-area">
+            <button class="btn btn-sm btn-outline btn-info"
+                    hx-post="{% url 'search:exercise_coach' attempt.pk %}"
+                    hx-target="#coach-area"
+                    hx-swap="innerHTML"
+                    hx-disabled-elt="this">
+                <span class="htmx-indicator loading loading-spinner loading-xs"></span>
+                💬 AI 한마디 받기
+            </button>
+        </div>
         {% endif %}
 
         <!-- 액션 버튼 -->

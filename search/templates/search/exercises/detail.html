@@ -9,11 +9,9 @@
         <div class="mb-6">
             <div class="flex items-center gap-2 mb-2">
                 {% if exercise.exercise_type == 'generation_compare' %}
-                <span class="badge badge-secondary">생성→비교</span>
+                <span class="badge badge-secondary">직접 답하기</span>
                 {% elif exercise.exercise_type == 'path_trace' %}
-                <span class="badge badge-accent">경로추적</span>
-                {% else %}
-                <span class="badge badge-info">인출 체크인</span>
+                <span class="badge badge-accent">선택지 고르기</span>
                 {% endif %}
                 <span class="text-sm text-base-content/50">복습 주기: {{ exercise.review_interval }}일</span>
             </div>
@@ -27,20 +25,21 @@
             <div class="card-body">
 
                 {% if exercise.exercise_type == 'generation_compare' %}
-                <!-- ── 생성→비교 ── -->
+                <!-- ── 생성→비교 (1단계: 답 작성) ── -->
                 <h2 class="card-title text-lg mb-4">{{ exercise.content.question }}</h2>
-                <div id="answer-area">
+                <div id="stage-area">
                     <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
-                          hx-target="#result-area"
-                          hx-swap="innerHTML"
-                          hx-indicator="#submit-indicator">
+                          hx-target="#stage-area"
+                          hx-swap="outerHTML">
                         {% csrf_token %}
+                        <input type="hidden" name="stage" value="reveal">
                         <textarea name="answer"
+                                  data-draft-key="exercise:{{ exercise.pk }}:draft"
                                   class="textarea textarea-bordered w-full h-40 resize-none mb-4"
-                                  placeholder="여기에 답변을 작성해보세요..."></textarea>
+                                  placeholder="모범 답안을 보기 전에 먼저 답을 작성해보세요..."></textarea>
                         <div class="flex items-center gap-3">
                             <button type="submit" class="btn btn-primary">제출하기</button>
-                            <span id="submit-indicator" class="htmx-indicator loading loading-spinner loading-sm"></span>
+                            <span class="htmx-indicator loading loading-spinner loading-sm"></span>
                         </div>
                     </form>
                 </div>
@@ -96,24 +95,6 @@
                     </form>
                 </div>
 
-                {% else %}
-                <!-- ── 인출 체크인 ── -->
-                <h2 class="card-title text-lg mb-4">{{ exercise.content.question }}</h2>
-                <div id="answer-area">
-                    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
-                          hx-target="#result-area"
-                          hx-swap="innerHTML"
-                          hx-indicator="#submit-indicator">
-                        {% csrf_token %}
-                        <textarea name="answer"
-                                  class="textarea textarea-bordered w-full h-40 resize-none mb-4"
-                                  placeholder="기억나는 대로 자유롭게 작성해보세요..."></textarea>
-                        <div class="flex items-center gap-3">
-                            <button type="submit" class="btn btn-primary">제출하기</button>
-                            <span id="submit-indicator" class="htmx-indicator loading loading-spinner loading-sm"></span>
-                        </div>
-                    </form>
-                </div>
                 {% endif %}
 
             </div>
@@ -126,6 +107,20 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if exercise.exercise_type != 'path_trace' %}
+<script>
+// textarea draft를 localStorage에 임시 저장 (1단계 미제출 시 새로고침으로 인한 유실 방지)
+(function() {
+    const ta = document.querySelector('textarea[data-draft-key]');
+    if (!ta) return;
+    const key = ta.dataset.draftKey;
+    const saved = localStorage.getItem(key);
+    if (saved) ta.value = saved;
+    ta.addEventListener('input', () => localStorage.setItem(key, ta.value));
+})();
+</script>
+{% endif %}
+
 {% if exercise.exercise_type == 'path_trace' %}
 <script>
 const totalSteps = {{ exercise.content.steps|length }};

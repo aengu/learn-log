@@ -12,9 +12,8 @@ from ..models import Exercise, ExerciseAttempt
 class ExerciseService:
     """
     연습문제 생성·채점·간격 반복 관리
-    - generation_compare: AI 비교 채점
+    - generation_compare: 자가 마킹 채점 (LLM 호출 없음) + on-demand "AI 한마디"
     - path_trace: 인덱스 매칭 (JS 즉시 피드백 + 서버 저장)
-    - retrieval_checkin: 핵심 포인트 체크 (AI)
     """
 
     MODEL = "mistral-small-latest"
@@ -39,7 +38,6 @@ class ExerciseService:
         dispatch = {
             'generation_compare': self._gen_generation_compare,
             'path_trace': self._gen_path_trace,
-            'retrieval_checkin': self._gen_retrieval_checkin,
         }
         if exercise_type not in dispatch:
             raise ValueError(f"알 수 없는 유형: {exercise_type}")
@@ -48,13 +46,22 @@ class ExerciseService:
     def _gen_generation_compare(self, log):
         prompt = textwrap.dedent(f"""
             아래 학습 내용으로 "생성→비교" 연습문제를 만들어주세요.
-            학습자가 먼저 답변을 쓰고 모범 답안과 비교하는 유형입니다.
+            학습자가 먼저 답변을 쓰고, 모범 답안과 핵심 포인트를 보며 스스로 비교/채점합니다.
 
             질문: {log.query}
             답변: {log.ai_response[:500]}
 
             JSON으로만 응답 (```없이):
-            {{"question": "핵심 개념을 설명하게 유도하는 질문", "model_answer": "핵심 포인트 포함 모범 답안"}}
+            {{
+              "question": "핵심 개념을 설명하게 유도하는 질문",
+              "model_answer": "핵심 포인트를 포함한 모범 답안 (3~5문장)",
+              "key_points": ["채점 기준 1", "기준 2", "기준 3", "기준 4"]
+            }}
+
+            ⚠️ key_points 규칙:
+            - model_answer에서 빠지면 안 되는 핵심 명사구를 짧게 (각 30자 이내)
+            - 학습자가 본인 답에 포함됐는지 yes/no로 판단할 수 있는 단위
+            - 3~5개
         """).strip()
         return self._call_mistral_json(prompt)
 
@@ -74,19 +81,6 @@ class ExerciseService:
             - choices[correct_index]가 정답 값과 정확히 같아야 함
             - 예: choices=["1","2","3","4"], 정답="2" → correct_index=1 (choices[1]="2")
             - correct_index를 정한 뒤 choices[correct_index]로 검증하세요.
-        """).strip()
-        return self._call_mistral_json(prompt)
-
-    def _gen_retrieval_checkin(self, log):
-        prompt = textwrap.dedent(f"""
-            아래 학습 내용으로 "인출 체크인" 연습문제를 만들어주세요.
-            핵심 개념을 기억에서 꺼내는 유형입니다. key_points는 3~5개.
-
-            질문: {log.query}
-            답변: {log.ai_response[:500]}
-
-            JSON으로만 응답 (```없이):
-            {{"question": "기억에서 꺼내게 하는 질문", "key_points": ["핵심 포인트1", "핵심 포인트2", "핵심 포인트3"]}}
         """).strip()
         return self._call_mistral_json(prompt)
 
@@ -114,8 +108,7 @@ class ExerciseService:
     def evaluate_attempt(self, exercise, user_answer):
         dispatch = {
             'path_trace': self._evaluate_path_trace,
-            'generation_compare': self._evaluate_generation_compare,
-            'retrieval_checkin': self._evaluate_retrieval_checkin,
+            'generation_compare': self._evaluate_self_marked,
         }
         return dispatch[exercise.exercise_type](exercise, user_answer)
 
@@ -138,68 +131,55 @@ class ExerciseService:
             'ai_feedback': '\n'.join(feedback_lines),
         }
 
-    def _evaluate_generation_compare(self, exercise, user_answer):
-        user_text = user_answer.get('text', '')
-        prompt = textwrap.dedent(f"""
-            학습자 답변을 모범 답안과 비교 평가하세요.
-
-            질문: {exercise.content.get('question', '')}
-            모범 답안: {exercise.content.get('model_answer', '')}
-            학습자 답변: {user_text}
-
-            JSON으로만 응답 (```없이):
-            {{"score": 0.0~1.0, "is_correct": true/false, "feedback": "1. 맞은 부분 2. 놓친 부분 3. 왜 그런지 (한국어)"}}
-        """).strip()
-        try:
-            response = self.mistral_client.chat.complete(
-                model=self.MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=500,
-            )
-            result = self._parse_json_response(response.choices[0].message.content)
-            return {
-                'is_correct': bool(result.get('is_correct', False)),
-                'score': float(result.get('score', 0)),
-                'ai_feedback': result.get('feedback', ''),
-            }
-        except Exception as e:
-            print(f"generation_compare 채점 오류: {e}")
-            return {'is_correct': False, 'score': 0.0, 'ai_feedback': '채점 중 오류가 발생했습니다.'}
-
-    def _evaluate_retrieval_checkin(self, exercise, user_answer):
-        user_text = user_answer.get('text', '')
+    def _evaluate_self_marked(self, exercise, user_answer):
+        """
+        자가 채점: 학습자가 직접 체크한 핵심 포인트 비율로 점수 산정.
+        AI 호출 없음. ai_feedback 필드에는 reflection(있을 경우)을 저장한다.
+        """
         key_points = exercise.content.get('key_points', [])
-        points_str = '\n'.join(f"- {p}" for p in key_points)
+        total = max(len(key_points), 1)
+        # 범위 정규화: 0 <= i < total
+        covered = [i for i in user_answer.get('covered_indices', []) if 0 <= i < total]
+        score = len(covered) / total
+        return {
+            'is_correct': score >= 0.6,
+            'score': score,
+            'ai_feedback': user_answer.get('reflection', ''),
+        }
+
+    # ── AI 한마디 (on-demand 보조 코멘트) ──────────────────────────────
+
+    def generate_coach_comment(self, attempt):
+        """학습자의 답·자가체크·회고를 보고 1~2문장 보조 코멘트 생성."""
+        exercise = attempt.exercise
+        ua = attempt.user_answer or {}
+        key_points = exercise.content.get('key_points', [])
+        covered_idx = set(i for i in ua.get('covered_indices', []) if 0 <= i < len(key_points))
+        covered_str = ', '.join(p for i, p in enumerate(key_points) if i in covered_idx) or '(없음)'
+        missed_str = ', '.join(p for i, p in enumerate(key_points) if i not in covered_idx) or '(없음)'
         prompt = textwrap.dedent(f"""
-            학습자 답변에서 핵심 포인트 포함 여부를 확인하세요.
+            학습자의 자가 학습을 1~2문장으로 짧게 코멘트 해주세요.
+            평가/채점이 아니라 격려·보완 한마디입니다. 한국어로.
 
             질문: {exercise.content.get('question', '')}
-            핵심 포인트:
-            {points_str}
-            학습자 답변: {user_text}
+            모범 답안: {exercise.content.get('model_answer', '') or '(없음)'}
+            학습자 답: {ua.get('text', '')}
+            본인이 체크한 포인트: {covered_str}
+            빠뜨린 포인트: {missed_str}
+            본인 회고: {ua.get('reflection', '') or '(없음)'}
 
-            JSON으로만 응답 (```없이):
-            {{"covered_points": [true/false 목록], "feedback": "잘 다룬 점과 빠진 점 (한국어)"}}
+            ⚠️ 1~2문장, 부드럽고 구체적으로. JSON 아닌 평문으로만 응답.
         """).strip()
         try:
             response = self.mistral_client.chat.complete(
                 model=self.MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=500,
+                temperature=0.6,
+                max_tokens=120,
             )
-            result = self._parse_json_response(response.choices[0].message.content)
-            covered = result.get('covered_points', [False] * len(key_points))
-            score = sum(covered) / len(key_points) if key_points else 0
-            return {
-                'is_correct': score >= 0.6,
-                'score': score,
-                'ai_feedback': result.get('feedback', ''),
-            }
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"retrieval_checkin 채점 오류: {e}")
-            return {'is_correct': False, 'score': 0.0, 'ai_feedback': '채점 중 오류가 발생했습니다.'}
+            return f"코멘트 생성 오류: {e}"
 
     # ── 저장 & 간격 반복 ────────────────────────────────────────────────
 

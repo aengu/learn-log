@@ -1,0 +1,57 @@
+<div id="stage-area">
+    <!-- 본인 답안 (읽기 전용) -->
+    <div class="mb-4">
+        <p class="font-semibold text-sm mb-2 text-base-content/70">내가 쓴 답</p>
+        <div class="bg-base-200 rounded-lg p-4 text-sm whitespace-pre-line">{{ user_text|default:"(빈 답)" }}</div>
+    </div>
+
+    <!-- 모범 답안 공개 -->
+    <div class="mb-4">
+        <p class="font-semibold text-sm mb-2 text-primary">모범 답안</p>
+        <div class="bg-primary/5 border border-primary/20 rounded-lg p-4 text-sm whitespace-pre-line">{{ exercise.content.model_answer }}</div>
+    </div>
+
+    <!-- 자가 마킹 체크리스트 -->
+    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+          hx-target="#stage-area"
+          hx-swap="outerHTML"
+          onsubmit="return confirmSelfMark(this)">
+        {% csrf_token %}
+        <input type="hidden" name="text" value="{{ user_text }}">
+        <input type="hidden" name="stage" value="reflect">
+
+        <p class="font-semibold text-sm mb-3">✅ 내 답에 포함된 핵심 포인트를 직접 체크해보세요</p>
+
+        {% if exercise.content.key_points %}
+        <div class="flex flex-col gap-2 mb-4">
+            {% for point in exercise.content.key_points %}
+            <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200 transition">
+                <input type="checkbox" name="covered" value="{{ forloop.counter0 }}" class="checkbox checkbox-primary peer">
+                <span class="text-sm peer-checked:line-through peer-checked:text-base-content/50">{{ point }}</span>
+            </label>
+            {% endfor %}
+        </div>
+        {% else %}
+        <!-- 폴백: key_points 없는 구 데이터 -->
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200 transition mb-4">
+            <input type="checkbox" name="covered" value="0" class="checkbox checkbox-primary peer">
+            <span class="text-sm peer-checked:text-success">전체적으로 잘 비교했습니다</span>
+        </label>
+        {% endif %}
+
+        <div class="flex items-center gap-3">
+            <button type="submit" class="btn btn-primary">회고 단계로 →</button>
+            <span class="htmx-indicator loading loading-spinner loading-sm"></span>
+        </div>
+    </form>
+</div>
+
+<script>
+function confirmSelfMark(form) {
+    const checked = form.querySelectorAll('input[name="covered"]:checked').length;
+    if (checked === 0) {
+        return confirm('하나도 체크하지 않았어요. 그래도 진행할까요?');
+    }
+    return true;
+}
+</script>

@@ -7,6 +7,7 @@ from .api_views import (
     LogDetailAPIView,
     ExerciseGenerateAPIView,
     ExerciseAttemptAPIView,
+    ExerciseCoachAPIView,
 )
 
 app_name = 'search'
@@ -30,4 +31,5 @@ urlpatterns = [
     # Exercise API
     path('api/exercises/generate/<int:log_pk>/', ExerciseGenerateAPIView.as_view(), name='exercise_generate'),
     path('api/exercises/<int:pk>/attempt/', ExerciseAttemptAPIView.as_view(), name='exercise_attempt'),
+    path('api/attempts/<int:pk>/coach/', ExerciseCoachAPIView.as_view(), name='exercise_coach'),
 ]

@@ -21,11 +21,9 @@
                             <!-- 유형 뱃지 -->
                             <div class="flex items-center gap-2 mb-2">
                                 {% if ex.exercise_type == 'generation_compare' %}
-                                <span class="badge badge-secondary badge-sm">생성→비교</span>
+                                <span class="badge badge-secondary badge-sm">직접 답하기</span>
                                 {% elif ex.exercise_type == 'path_trace' %}
-                                <span class="badge badge-accent badge-sm">경로추적</span>
-                                {% else %}
-                                <span class="badge badge-info badge-sm">인출 체크인</span>
+                                <span class="badge badge-accent badge-sm">선택지 고르기</span>
                                 {% endif %}
                                 <!-- 복습 주기 -->
                                 <span class="text-xs text-base-content/50">{{ ex.review_interval }}일 주기</span>

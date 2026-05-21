@@ -141,9 +141,8 @@ REVIEW_INTERVALS = [1, 3, 7, 14, 30]
 
 class Exercise(models.Model):
     EXERCISE_TYPE_CHOICES = [
-        ('generation_compare', '생성→비교'),
-        ('path_trace', '경로추적'),
-        ('retrieval_checkin', '인출 체크인'),
+        ('generation_compare', '직접 답하기'),
+        ('path_trace', '선택지 고르기'),
     ]
 
     learning_log = models.ForeignKey(

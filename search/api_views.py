@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import LearningLog, Exercise
+from .models import LearningLog, Exercise, ExerciseAttempt
 from .services import LearnlogService, ExerciseService
 from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
 
@@ -173,7 +173,7 @@ class ExerciseGenerateAPIView(View):
     """연습문제 생성 - HTMX POST"""
     def post(self, request, log_pk):
         exercise_type = request.POST.get('exercise_type', '')
-        valid_types = ['generation_compare', 'path_trace', 'retrieval_checkin']
+        valid_types = [t[0] for t in EXERCISE_TYPES]
         if exercise_type not in valid_types:
             return HttpResponse(
                 '<div class="alert alert-error">유효하지 않은 유형입니다.</div>'
@@ -197,7 +197,14 @@ class ExerciseGenerateAPIView(View):
 
 
 class ExerciseAttemptAPIView(View):
-    """연습문제 풀이 제출 - HTMX POST"""
+    """
+    연습문제 풀이 제출 - HTMX POST.
+    `stage` 폼 파라미터로 다단계 분기:
+      - reveal: 1단계 답 받고 → 2단계 partial 반환 (저장 X)
+      - reflect: 2단계 체크 받고 → 3단계 partial 반환 (generation_compare 전용, 저장 X)
+      - final (또는 미지정): 자가 채점 + 저장 + 결과 partial 반환
+    path_trace는 stage 없이 final 동작 (selected_indices만).
+    """
     def post(self, request, pk):
         try:
             exercise = Exercise.objects.select_related('learning_log').get(pk=pk)
@@ -205,15 +212,64 @@ class ExerciseAttemptAPIView(View):
             return HttpResponse('<div class="alert alert-error">연습문제를 찾을 수 없습니다.</div>')
 
         exercise_type = exercise.exercise_type
+
+        # path_trace: 기존 흐름 그대로
         if exercise_type == 'path_trace':
             raw = request.POST.get('selected_indices', '[]')
             try:
                 user_answer = {'selected_indices': json.loads(raw)}
             except (json.JSONDecodeError, ValueError):
                 return HttpResponse('<div class="alert alert-error">잘못된 답변 형식입니다.</div>')
-        else:
-            user_answer = {'text': request.POST.get('answer', '').strip()}
+            return self._finalize(request, exercise, user_answer)
 
+        # generation_compare / retrieval_checkin: stage 분기
+        stage = request.POST.get('stage', 'final')
+
+        if stage == 'reveal':
+            text = request.POST.get('answer', '').strip()
+            return render(request, 'search/partials/exercise_stage_reveal.html', {
+                'exercise': exercise,
+                'user_text': text,
+            })
+
+        if stage == 'reflect':
+            # generation_compare 전용 — 2단계 체크 결과를 3단계로 carry-over
+            text = request.POST.get('text', '').strip()
+            covered = self._parse_covered(request, exercise)
+            return render(request, 'search/partials/exercise_stage_reflect.html', {
+                'exercise': exercise,
+                'user_text': text,
+                'covered_indices': covered,
+                'covered_set': set(covered),
+            })
+
+        # final
+        text = request.POST.get('text', '').strip()
+        covered = self._parse_covered(request, exercise)
+        user_answer = {
+            'text': text,
+            'covered_indices': covered,
+        }
+        if exercise_type == 'generation_compare':
+            user_answer['reflection'] = request.POST.get('reflection', '').strip()
+        return self._finalize(request, exercise, user_answer)
+
+    @staticmethod
+    def _parse_covered(request, exercise):
+        raw = request.POST.getlist('covered')
+        total = len(exercise.content.get('key_points', []))
+        out = []
+        for v in raw:
+            try:
+                i = int(v)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= i < total:
+                out.append(i)
+        return out
+
+    @staticmethod
+    def _finalize(request, exercise, user_answer):
         try:
             service = ExerciseService()
             evaluation = service.evaluate_attempt(exercise, user_answer)
@@ -225,3 +281,21 @@ class ExerciseAttemptAPIView(View):
             })
         except Exception as e:
             return HttpResponse(f'<div class="alert alert-error">채점 오류: {e}</div>')
+
+
+class ExerciseCoachAPIView(View):
+    """AI 한마디 (on-demand) - HTMX POST"""
+    def post(self, request, pk):
+        try:
+            attempt = ExerciseAttempt.objects.select_related('exercise').get(pk=pk)
+        except ExerciseAttempt.DoesNotExist:
+            return HttpResponse('<div class="alert alert-error">풀이 기록을 찾을 수 없습니다.</div>')
+
+        try:
+            service = ExerciseService()
+            comment = service.generate_coach_comment(attempt)
+            return render(request, 'search/partials/exercise_coach.html', {
+                'comment': comment,
+            })
+        except Exception as e:
+            return HttpResponse(f'<div class="alert alert-warning">코멘트 생성 오류: {e}</div>')
