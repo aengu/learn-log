@@ -2,6 +2,8 @@
 기술 스택별 공식 문서 도메인 매핑
 - 질문에서 키워드 추출 시 해당 도메인으로 검색 범위 제한
 - 태그 추출 결과와도 매핑 가능
+- 버전 path가 있는 문서는 current/stable/메이저 경로까지 명시해서
+  Tavily가 옛 버전·릴리스 노트를 결과에 포함하지 않도록 함
 """
 
 TECH_DOCS_MAP = {
@@ -19,8 +21,8 @@ TECH_DOCS_MAP = {
     '앤서블': ['docs.ansible.com'],
     'nginx': ['nginx.org/en/docs'],
     '엔진엑스': ['nginx.org/en/docs'],
-    'apache': ['httpd.apache.org/docs'],
-    '아파치': ['httpd.apache.org/docs'],
+    'apache': ['httpd.apache.org/docs/current'],
+    '아파치': ['httpd.apache.org/docs/current'],
 
     # 클라우드
     'aws': ['docs.aws.amazon.com'],
@@ -28,8 +30,8 @@ TECH_DOCS_MAP = {
     'azure': ['learn.microsoft.com/azure'],
 
     # 언어
-    'python': ['docs.python.org'],
-    '파이썬': ['docs.python.org'],
+    'python': ['docs.python.org/3'],
+    '파이썬': ['docs.python.org/3'],
     'javascript': ['developer.mozilla.org'],
     '자바스크립트': ['developer.mozilla.org'],
     'typescript': ['typescriptlang.org/docs'],
@@ -45,13 +47,13 @@ TECH_DOCS_MAP = {
     'cpp': ['en.cppreference.com'],
 
     # 프레임워크 - Python
-    'django': ['docs.djangoproject.com'],
-    '장고': ['docs.djangoproject.com'],
-    'flask': ['flask.palletsprojects.com'],
-    '플라스크': ['flask.palletsprojects.com'],
+    'django': ['docs.djangoproject.com/en'],
+    '장고': ['docs.djangoproject.com/en'],
+    'flask': ['flask.palletsprojects.com/en/stable'],
+    '플라스크': ['flask.palletsprojects.com/en/stable'],
     'fastapi': ['fastapi.tiangolo.com'],
-    'celery': ['docs.celeryq.dev'],
-    '셀러리': ['docs.celeryq.dev'],
+    'celery': ['docs.celeryq.dev/en/stable'],
+    '셀러리': ['docs.celeryq.dev/en/stable'],
 
     # 프레임워크 - JavaScript
     'react': ['react.dev'],
@@ -65,9 +67,9 @@ TECH_DOCS_MAP = {
     '넥스트': ['nextjs.org/docs'],
     'nuxt': ['nuxt.com/docs'],
     '넉스트': ['nuxt.com/docs'],
-    'node': ['nodejs.org/docs'],
-    'nodejs': ['nodejs.org/docs'],
-    '노드': ['nodejs.org/docs'],
+    'node': ['nodejs.org/docs/latest/api'],
+    'nodejs': ['nodejs.org/docs/latest/api'],
+    '노드': ['nodejs.org/docs/latest/api'],
     'express': ['expressjs.com'],
     '익스프레스': ['expressjs.com'],
     'htmx': ['htmx.org'],
@@ -79,9 +81,9 @@ TECH_DOCS_MAP = {
     '스프링부트': ['docs.spring.io/spring-boot'],
 
     # 데이터베이스
-    'postgresql': ['postgresql.org/docs'],
-    'postgres': ['postgresql.org/docs'],
-    '포스트그레스': ['postgresql.org/docs'],
+    'postgresql': ['postgresql.org/docs/current'],
+    'postgres': ['postgresql.org/docs/current'],
+    '포스트그레스': ['postgresql.org/docs/current'],
     'mysql': ['dev.mysql.com/doc'],
     '마이에스큐엘': ['dev.mysql.com/doc'],
     'mongodb': ['mongodb.com/docs'],
@@ -121,7 +123,9 @@ TECH_DOCS_MAP = {
 
 def get_domains_for_query(query: str) -> list[str] | None:
     """
-    질문에서 키워드를 추출하여 관련 공식 문서 도메인 반환
+    질문에서 키워드를 추출하여 관련 공식 문서 도메인 반환.
+    매칭되는 기술이 없으면 None을 반환해 도메인 제한 없이 전체 웹을 검색하게 한다.
+    (github.com을 무조건 포함하면 한국어 질문이 임의 개인 레포로 오염되므로 제외)
     """
     query_lower = query.lower()
     domains = []
@@ -132,10 +136,6 @@ def get_domains_for_query(query: str) -> list[str] | None:
 
     # 중복 제거
     domains = list(dict.fromkeys(domains))
-
-    # GitHub는 항상 포함 (유용한 예제/이슈가 많음)
-    if 'github.com' not in domains:
-        domains.append('github.com')
 
     return domains if domains else None
 

@@ -106,15 +106,19 @@ class LearnlogService:
     def search_official_docs(self, query):
         """
         Tavily API로 공식 문서 검색
+        - 한국어 질문을 영어 검색어로 변환해 영어 공식 문서 매칭률을 높임
         - 질문에서 기술 스택을 추출하여 해당 공식 문서 도메인으로 검색
         """
-        # 질문에서 관련 도메인 키워드 추출
-        domains = get_domains_for_query(query)
-        print(f"  검색 도메인: {domains}")
+        # 한국어 → 영어 검색어 변환 (영어 공식 문서 매칭률 향상)
+        search_query = self._to_search_query(query)
+
+        # 도메인 매칭은 원본(한국어 키워드 포함) + 변환 쿼리 둘 다에서 추출
+        domains = get_domains_for_query(f"{query} {search_query}")
+        print(f"  검색어: {search_query} / 도메인: {domains}")
 
         try:
             search_params = {
-                'query': query,
+                'query': search_query,
                 'search_depth': 'advanced',
                 'max_results': 5,
             }
@@ -128,6 +132,32 @@ class LearnlogService:
         except Exception as e:
             print(f"검색 오류: {e}")
             return {'results': []}
+
+    def _to_search_query(self, query):
+        """
+        한국어 개발 질문을 영어 웹 검색용 키워드로 변환.
+        실패 시 원본 질문을 그대로 반환한다.
+        """
+        prompt = textwrap.dedent(f"""
+            Convert this developer question into a concise English web search query.
+            Output only the search keywords (tech names, concepts), no explanation.
+
+            Question: {query}
+
+            Search query:
+        """).strip()
+        try:
+            response = self.groq_client.chat.completions.create(
+                model=self.LIGHT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=40,
+            )
+            converted = response.choices[0].message.content.strip()
+            return converted or query
+        except Exception as e:
+            print(f"검색어 변환 오류: {e}")
+            return query
 
     DEFAULT_INSTRUCTIONS = "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함."
 
