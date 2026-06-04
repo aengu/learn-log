@@ -65,7 +65,13 @@ class ExerciseService:
         """).strip()
         return self._call_mistral_json(prompt)
 
+    PATH_TRACE_MIN_STEPS = 3   # 최소 통과 step 수 (미달 시 재생성 시도)
+
     def _gen_path_trace(self, log):
+        """
+        출제 후 결정적 검증(choices[correct_index] == correct_answer)으로 잘못된 step을 걸러낸다.
+        통과 step이 부족하면 1회 재생성한다. 프롬프트 규칙만으로 잡지 못하는 환각을 런타임에서 차단.
+        """
         prompt = textwrap.dedent(f"""
             아래 학습 내용으로 "경로추적" 연습문제를 만들어주세요.
             실행 흐름을 단계별로 추적하며 객관식으로 답하는 유형입니다. steps는 3~5개.
@@ -74,34 +80,72 @@ class ExerciseService:
             답변: {log.ai_response[:500]}
 
             JSON으로만 응답 (```없이):
-            {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "explanation": "설명"}}]}}
+            {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "correct_answer": "A", "explanation": "설명"}}]}}
 
             ⚠️ correct_index 규칙 (반드시 준수):
             - choices 배열의 0-based 인덱스 (첫 요소 = 0)
             - choices[correct_index]가 정답 값과 정확히 같아야 함
             - 예: choices=["1","2","3","4"], 정답="2" → correct_index=1 (choices[1]="2")
             - correct_index를 정한 뒤 choices[correct_index]로 검증하세요.
+
+            ⚠️ correct_answer 규칙:
+            - 정답의 실제 값(value). choices 배열 중 한 요소와 글자까지 정확히 같아야 함.
+            - 항상 choices[correct_index]와 동일한 문자열을 넣으세요. (코드 레벨 검증용 ground truth)
         """).strip()
-        return self._call_mistral_json(prompt)
+
+        content, raw_count = self._gen_and_validate(prompt)
+        # 환각 1개라도 발생(통과 < raw) 또는 통과 step 부족이면 1회 재생성, 더 많은 쪽 채택
+        all_ok = len(content.get('steps', [])) == raw_count and raw_count >= self.PATH_TRACE_MIN_STEPS
+        if not all_ok:
+            retry, _ = self._gen_and_validate(prompt)
+            if len(retry.get('steps', [])) > len(content.get('steps', [])):
+                content = retry
+        if not content.get('steps'):
+            raise ValueError("path_trace 출제 실패: 유효한 step이 없습니다")
+        return content
+
+    def _gen_and_validate(self, prompt):
+        """
+        LLM 호출 + JSON 파싱 + 검증을 묶음. 응답이 깨져도 재생성으로 흡수되도록 예외는 빈 결과로 강등.
+        raw step 수도 같이 반환해 호출자가 "환각 발생 여부"(통과 < raw)를 판정할 수 있게 한다.
+        """
+        try:
+            raw = self._call_mistral_json(prompt)
+        except (json.JSONDecodeError, ValueError):
+            return {'steps': []}, 0
+        raw_count = len(raw.get('steps', []))
+        return self._filter_valid_steps(raw), raw_count
 
     @staticmethod
-    def _parse_json_response(raw):
-        raw = raw.strip()
-        if raw.startswith('```'):
-            parts = raw.split('```')
-            raw = parts[1] if len(parts) > 1 else raw
-            if raw.startswith('json'):
-                raw = raw[4:]
-        return json.loads(raw.strip())
+    def _filter_valid_steps(content):
+        """
+        choices[correct_index] == correct_answer를 만족하는 step만 남긴다.
+        결정적 규칙 검증(LLM 판정이 아닌 코드 비교)이라 환각이 통과할 여지가 없다.
+        """
+        valid = []
+        for step in content.get('steps', []):
+            ci = step.get('correct_index')
+            ca = step.get('correct_answer')
+            cs = step.get('choices', [])
+            if isinstance(ci, int) and 0 <= ci < len(cs) and ca is not None and cs[ci] == ca:
+                valid.append(step)
+        content['steps'] = valid
+        return content
 
     def _call_mistral_json(self, prompt):
+        """
+        Mistral에 JSON 응답을 요청한다.
+        response_format=json_object가 모델 레벨에서 valid JSON을 보장하므로
+        별도의 코드 펜스 처리 없이 바로 json.loads로 파싱한다.
+        """
         response = self.mistral_client.chat.complete(
             model=self.MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            max_tokens=1500,
+            max_tokens=2000,
+            response_format={"type": "json_object"},
         )
-        return self._parse_json_response(response.choices[0].message.content)
+        return json.loads(response.choices[0].message.content)
 
     # ── 채점 ──────────────────────────────────────────────────────────
 

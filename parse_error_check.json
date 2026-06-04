@@ -1,0 +1,64 @@
+[
+  {
+    "iter": 1,
+    "status": "parse_err",
+    "error_message": "Unterminated string starting at: line 5 column 19 (char 121)",
+    "err_pos": 121,
+    "raw_len": 1636,
+    "raw_head": "```json\n{\n  \"scenario\": \"다음은 파이썬 참조 카운팅의 동작 과정을 단계별로 설명한 것입니다. 각 단계의 결과를 추론하여 객관식으로 답하세요.\",\n  \"steps\": [\n    {\n      \"question\": \"다음 코드의 실행 결과로 참조 카운트는 어떻게 변할까요?\\n```python\\nimport sys\\nx = []\\nprint(sys.getrefcount(x))\\n```\",\n      \"choices\": [\"2\", \"1\", \"3\", \"0\"],\n      \"correct_index\": 0,\n      \"c",
+    "raw_around_err": "으로 답하세요.\",\n  \"steps\": [\n    {\n      \"question\": \"다음 코드의 실행 결과로 참조 카운트는 어떻게 변할까요?"
+  },
+  {
+    "iter": 2,
+    "status": "ok",
+    "raw_len": 1322
+  },
+  {
+    "iter": 3,
+    "status": "ok",
+    "raw_len": 1507
+  },
+  {
+    "iter": 4,
+    "status": "ok",
+    "raw_len": 1438
+  },
+  {
+    "iter": 5,
+    "status": "ok",
+    "raw_len": 1084
+  },
+  {
+    "iter": 6,
+    "status": "parse_err",
+    "error_message": "Unterminated string starting at: line 5 column 19 (char 131)",
+    "err_pos": 131,
+    "raw_len": 1752,
+    "raw_head": "```json\n{\n  \"scenario\": \"파이썬에서 참조 카운팅이 동작하는 과정을 단계별로 추적하는 문제입니다. 각 단계에서 객체의 참조 카운트가 어떻게 변하는지 확인하세요.\",\n  \"steps\": [\n    {\n      \"question\": \"다음 코드가 실행될 때, obj1의 참조 카운트는 몇인가요? (sys.getrefcount(obj1)을 호출하기 전 기준)\\n\\n```python\\nimport sys\\nobj1 = [1, 2, 3]\\n```\",\n      \"choices\": [\"1\", \"2\", \"3\", \"sys.get",
+    "raw_around_err": "지 확인하세요.\",\n  \"steps\": [\n    {\n      \"question\": \"다음 코드가 실행될 때, obj1의 참조 카운트는 몇인가"
+  },
+  {
+    "iter": 7,
+    "status": "ok",
+    "raw_len": 1345
+  },
+  {
+    "iter": 8,
+    "status": "ok",
+    "raw_len": 2099
+  },
+  {
+    "iter": 9,
+    "status": "parse_err",
+    "error_message": "Unterminated string starting at: line 5 column 19 (char 116)",
+    "err_pos": 116,
+    "raw_len": 1876,
+    "raw_head": "```json\n{\n  \"scenario\": \"다음은 파이썬의 참조 카운팅 메커니즘을 설명한 것입니다. 각 단계별로 객체의 참조 카운트를 추적해 보세요.\",\n  \"steps\": [\n    {\n      \"question\": \"다음 코드가 실행되었을 때, obj1의 참조 카운트는 몇일까요? (sys.getrefcount(obj1)을 호출한 상태에서 카운트를 생각하세요)\\n```python\\nimport sys\\nobj1 = [1, 2, 3]\\nref_count = sys.getrefcount(obj1)\\n```\",\n      \"choi",
+    "raw_around_err": "추적해 보세요.\",\n  \"steps\": [\n    {\n      \"question\": \"다음 코드가 실행되었을 때, obj1의 참조 카운트는 몇"
+  },
+  {
+    "iter": 10,
+    "status": "ok",
+    "raw_len": 1501
+  }
+]
