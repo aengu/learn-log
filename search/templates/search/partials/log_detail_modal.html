@@ -1,3 +1,11 @@
+{% if log.parent %}
+<p class="text-xs text-base-content/50 mb-1 pr-8">
+    ↳ 이어진 질문:
+    <a class="link link-hover" href="javascript:void(0)" onclick="openLogDetail({{ log.parent.id }})">
+        {{ log.parent.query|truncatechars:60 }}
+    </a>
+</p>
+{% endif %}
 <div class="flex justify-between items-start gap-2 pr-8">
     <h3 class="font-bold text-lg mb-2 flex-1">{{ log.query }}</h3>
     <span class="cursor-pointer text-xl shrink-0 {% if log.is_bookmarked %}text-warning{% else %}text-base-content/20{% endif %}"
@@ -37,6 +45,27 @@
            class="link link-hover flex items-center gap-2 text-sm">
             <span class="badge badge-sm badge-ghost">{{ ref.get_source_type_display }}</span>
             <span class="flex-1 truncate">{{ ref.title }}</span>
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<div class="divider"></div>
+<div class="flex items-center justify-between gap-2">
+    <h4 class="font-semibold">꼬리질문{% if log.follow_ups.exists %} {{ log.follow_ups.count }}개{% endif %}</h4>
+    <a href="{% url 'search:main' %}?parent={{ log.pk }}" class="btn btn-sm btn-outline btn-primary">
+        ↳ 꼬리질문 하기
+    </a>
+</div>
+{% if log.follow_ups.exists %}
+<ul class="space-y-2 mt-3">
+    {% for child in log.follow_ups.all %}
+    <li>
+        <a class="link link-hover text-sm flex items-center gap-2"
+           href="javascript:void(0)" onclick="openLogDetail({{ child.id }})">
+            <span class="badge badge-sm badge-ghost">↳</span>
+            <span class="flex-1 truncate">{{ child.query }}</span>
         </a>
     </li>
     {% endfor %}

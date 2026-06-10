@@ -17,7 +17,17 @@ class MainPageView(View):
     """메인 페이지 - 질문 입력 폼"""
     def get(self, request):
         streak = Streak.load()
-        return render(request, 'search/main.html', {'streak': streak})
+
+        # 질문기록 상세에서 "꼬리질문 하기"로 진입한 경우 (?parent=<pk>)
+        parent_log = None
+        parent_pk = request.GET.get('parent', '').strip()
+        if parent_pk:
+            parent_log = LearningLog.objects.filter(pk=parent_pk).first()
+
+        return render(request, 'search/main.html', {
+            'streak': streak,
+            'parent_log': parent_log,
+        })
 
 
 class LogListView(View):

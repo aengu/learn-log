@@ -43,12 +43,27 @@ class ExerciseService:
             raise ValueError(f"알 수 없는 유형: {exercise_type}")
         return dispatch[exercise_type](learning_log)
 
+    @staticmethod
+    def _parent_context(log):
+        """
+        꼬리질문 로그용 출제 컨텍스트. 꼬리질문의 query는 지시어("그러면...")뿐이라
+        부모 질문 없이는 출제 LLM이 주제를 모른다. 복습은 며칠 뒤 단독으로 풀므로
+        question 자체를 자기완결적으로 쓰라는 지시도 함께 넣는다.
+        """
+        if not log.parent:
+            return ""
+        return (
+            f"이전 질문(맥락): {log.parent.query}\n"
+            "⚠️ 위 맥락을 참고하되, 출제하는 question은 이전 맥락 없이도 "
+            "단독으로 이해 가능하게 작성하세요 (기술명·주제를 명시).\n"
+        )
+
     def _gen_generation_compare(self, log):
         prompt = textwrap.dedent(f"""
             아래 학습 내용으로 "생성→비교" 연습문제를 만들어주세요.
             학습자가 먼저 답변을 쓰고, 모범 답안과 핵심 포인트를 보며 스스로 비교/채점합니다.
 
-            질문: {log.query}
+            {self._parent_context(log)}질문: {log.query}
             답변: {log.ai_response[:500]}
 
             JSON으로만 응답 (```없이):
@@ -76,7 +91,7 @@ class ExerciseService:
             아래 학습 내용으로 "경로추적" 연습문제를 만들어주세요.
             실행 흐름을 단계별로 추적하며 객관식으로 답하는 유형입니다. steps는 3~5개.
 
-            질문: {log.query}
+            {self._parent_context(log)}질문: {log.query}
             답변: {log.ai_response[:500]}
 
             JSON으로만 응답 (```없이):

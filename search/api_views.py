@@ -58,21 +58,28 @@ class QuerySSEView(View):
             )
 
         custom_instructions = request.POST.get('custom_instructions', '').strip() or None
+
+        # 꼬리질문: 부모 로그가 있으면 검색어 변환·답변 생성에 컨텍스트로 사용
+        parent = None
+        parent_pk = request.POST.get('parent_pk', '').strip()
+        if parent_pk:
+            parent = LearningLog.objects.filter(pk=parent_pk).first()
+
         return StreamingHttpResponse(
-            self._process_stream(query, custom_instructions),
+            self._process_stream(query, custom_instructions, parent),
             content_type='text/event-stream'
         )
 
-    def _process_stream(self, query, custom_instructions=None):
+    def _process_stream(self, query, custom_instructions=None, parent=None):
         try:
             service = LearnlogService()
 
             yield self._sse_event('progress', {'step': 1, 'total': 4, 'message': '공식 문서 검색 중...'})
-            search_results = service.search_official_docs(query)
+            search_results = service.search_official_docs(query, parent=parent)
 
             yield self._sse_event('progress', {'step': 2, 'total': 4, 'message': 'AI 답변 생성 중...'})
             ai_answer_chunks = []
-            for chunk in service.generate_answer_stream(query, search_results, custom_instructions):
+            for chunk in service.generate_answer_stream(query, search_results, custom_instructions, parent=parent):
                 ai_answer_chunks.append(chunk)
                 yield self._sse_event('stream_token', {'token': chunk})
             ai_answer = ''.join(ai_answer_chunks).strip()
@@ -86,7 +93,7 @@ class QuerySSEView(View):
 
             yield self._sse_event('progress', {'step': 4, 'total': 4, 'message': '저장 중...'})
 
-            log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names)
+            log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names, parent=parent)
 
             result_html = render_to_string('search/partials/result.html', {
                 'log': log,

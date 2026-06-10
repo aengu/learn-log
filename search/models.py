@@ -62,6 +62,15 @@ class LearningLog(models.Model):
     ai_response = models.TextField(verbose_name="AI 답변")
     markdown_content = models.TextField(verbose_name="마크다운 내용")
 
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='follow_ups',
+        verbose_name="부모 질문"
+    )
+
     references = models.ManyToManyField(
         Reference,
         related_name='learning_logs',
@@ -103,6 +112,14 @@ class LearningLog(models.Model):
         """조회수 증가"""
         self.view_count += 1
         self.save(update_fields=['view_count'])
+
+    @property
+    def root(self):
+        """꼬리질문 체인의 시작 질문 (부모 없으면 자기 자신)"""
+        node = self
+        while node.parent_id:
+            node = node.parent
+        return node
     
     @classmethod
     def get_queryset(cls, q='', sort='latest', tags=None, bookmarked=False):  # noqa: E501

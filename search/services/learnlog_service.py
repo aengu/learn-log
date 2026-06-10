@@ -52,7 +52,7 @@ class LearnlogService:
         # 4. DB 저장
         return self.save_learning_log(user_query, ai_answer, markdown, search_results, tag_names)
 
-    def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names):
+    def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names, parent=None):
         """
         LearningLog 및 관련 데이터 DB 저장
         """
@@ -61,6 +61,7 @@ class LearnlogService:
             query=query,
             ai_response=ai_answer,
             markdown_content=markdown,
+            parent=parent,
         )
 
         # Reference 생성 및 연결
@@ -103,17 +104,24 @@ class LearnlogService:
         else:
             return 'other'
 
-    def search_official_docs(self, query):
+    def search_official_docs(self, query, parent=None):
         """
         Tavily API로 공식 문서 검색
         - 한국어 질문을 영어 검색어로 변환해 영어 공식 문서 매칭률을 높임
         - 질문에서 기술 스택을 추출하여 해당 공식 문서 도메인으로 검색
+        - 꼬리질문(parent)이면 루트+직속 부모 질문을 변환 컨텍스트로 사용
+          (체인에서 직속 부모도 모호할 수 있으므로 자기완결적인 루트 질문으로 주제 보장)
         """
-        # 한국어 → 영어 검색어 변환 (영어 공식 문서 매칭률 향상)
-        search_query = self._to_search_query(query)
+        context_queries = None
+        if parent:
+            context_queries = list(dict.fromkeys([parent.root.query, parent.query]))
 
-        # 도메인 매칭은 원본(한국어 키워드 포함) + 변환 쿼리 둘 다에서 추출
-        domains = get_domains_for_query(f"{query} {search_query}")
+        # 한국어 → 영어 검색어 변환 (영어 공식 문서 매칭률 향상)
+        search_query = self._to_search_query(query, context_queries)
+
+        # 도메인 매칭은 원본(한국어 키워드 포함) + 변환 쿼리 + 부모 질문에서 추출
+        domain_source = f"{query} {search_query} {' '.join(context_queries or [])}"
+        domains = get_domains_for_query(domain_source)
         print(f"  검색어: {search_query} / 도메인: {domains}")
 
         try:
@@ -133,19 +141,22 @@ class LearnlogService:
             print(f"검색 오류: {e}")
             return {'results': []}
 
-    def _to_search_query(self, query):
+    def _to_search_query(self, query, context_queries=None):
         """
         한국어 개발 질문을 영어 웹 검색용 키워드로 변환.
+        꼬리질문은 지시어("그러면", "그거")뿐이라 부모 질문 없이는 변환이 깨지므로
+        context_queries(루트+직속 부모 질문)를 함께 넘긴다 (0610 벤치마크: 0% → 100%).
         실패 시 원본 질문을 그대로 반환한다.
         """
-        prompt = textwrap.dedent(f"""
-            Convert this developer question into a concise English web search query.
-            Output only the search keywords (tech names, concepts), no explanation.
-
-            Question: {query}
-
-            Search query:
-        """).strip()
+        context_lines = "".join(
+            f"Previous question (context): {q}\n" for q in (context_queries or [])
+        )
+        prompt = (
+            "Convert this developer question into a concise English web search query.\n"
+            "Output only the search keywords (tech names, concepts), no explanation.\n\n"
+            f"{context_lines}Question: {query}\n\n"
+            "Search query:"
+        )
         try:
             response = self.groq_client.chat.completions.create(
                 model=self.LIGHT_MODEL,
@@ -161,7 +172,21 @@ class LearnlogService:
 
     DEFAULT_INSTRUCTIONS = "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함."
 
-    def generate_answer(self, query, search_results, custom_instructions=None):
+    @staticmethod
+    def _build_conversation_context(parent):
+        """
+        꼬리질문용 이전 대화 블록. 직속 부모의 질문 + 답변 500자만 포함한다.
+        (0610 벤치마크: 전문 주입은 답변이 길어져 max_tokens에 잘림. 500자면
+        지시어 해석에 충분하고 부모 답변이 체인의 주제를 운반함)
+        """
+        if not parent:
+            return ""
+        return (
+            f"이전 대화:\n[이전 질문] {parent.query}\n"
+            f"[이전 답변] {parent.ai_response[:500]}\n\n"
+        )
+
+    def generate_answer(self, query, search_results, custom_instructions=None, parent=None):
         """
         Mistral API로 AI 답변 생성
         """
@@ -171,11 +196,12 @@ class LearnlogService:
         ])
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
+        conversation = self._build_conversation_context(parent)
 
         prompt = textwrap.dedent(f"""
             개발 질문에 한국어로 답변하세요.
 
-            질문: {query}
+            {conversation}질문: {query}
 
             참고:
             {context if context else "없음"}
@@ -195,7 +221,7 @@ class LearnlogService:
             print(f"AI 답변 생성 오류: {e}")
             return "답변 생성 중 오류가 발생했습니다."
 
-    def generate_answer_stream(self, query, search_results, custom_instructions=None):
+    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None):
         """
         Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield
         """
@@ -205,11 +231,12 @@ class LearnlogService:
         ])
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
+        conversation = self._build_conversation_context(parent)
 
         prompt = textwrap.dedent(f"""
             개발 질문에 한국어로 답변하세요.
 
-            질문: {query}
+            {conversation}질문: {query}
 
             참고:
             {context if context else "없음"}

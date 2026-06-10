@@ -4,6 +4,11 @@
     <div class="card-body pb-0">
         <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
+                {% if log.parent %}
+                <p class="text-xs text-base-content/50 mb-1">
+                    ↳ 이어진 질문: {{ log.parent.query|truncatechars:60 }}
+                </p>
+                {% endif %}
                 <h2 class="card-title">{{ log.query }}</h2>
                 <p class="text-sm text-base-content/60 mt-1">
                     {{ log.created_at|date:"Y년 n월 j일 H:i" }}
@@ -60,6 +65,21 @@
         </ul>
     </div>
     {% endif %}
+
+    <!-- 꼬리질문 -->
+    <div class="bg-base-200 px-8 py-6 border-t border-base-300">
+        <h3 class="font-semibold mb-3">꼬리질문</h3>
+        <form class="flex flex-col sm:flex-row gap-2"
+              onsubmit="event.preventDefault(); submitQuery(document.getElementById('followup-input').value.trim(), {{ log.pk }});">
+            <input
+                type="text"
+                id="followup-input"
+                placeholder="이 답변에 이어서 질문하기 (예: 그러면 이 경우에는?)"
+                class="input input-bordered input-sm flex-1"
+            >
+            <button type="submit" class="btn btn-primary btn-sm">질문</button>
+        </form>
+    </div>
 
     <!-- 연습문제 만들기 -->
     <div class="bg-base-200 rounded-b-2xl px-8 py-6">
