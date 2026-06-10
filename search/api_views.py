@@ -74,24 +74,29 @@ class QuerySSEView(View):
         try:
             service = LearnlogService()
 
-            yield self._sse_event('progress', {'step': 1, 'total': 4, 'message': '공식 문서 검색 중...'})
+            yield self._sse_event('progress', {'step': 1, 'total': 5, 'message': '내 학습 기록 검색 중...'})
+            # 꼬리질문이면 부모는 별도 컨텍스트로 들어가므로 retrieval에서 제외
+            exclude_pks = [parent.pk] if parent else None
+            retrieved_logs = service.retrieve_similar_logs(query, exclude_pks=exclude_pks)
+
+            yield self._sse_event('progress', {'step': 2, 'total': 5, 'message': '공식 문서 검색 중...'})
             search_results = service.search_official_docs(query, parent=parent)
 
-            yield self._sse_event('progress', {'step': 2, 'total': 4, 'message': 'AI 답변 생성 중...'})
+            yield self._sse_event('progress', {'step': 3, 'total': 5, 'message': 'AI 답변 생성 중...'})
             ai_answer_chunks = []
-            for chunk in service.generate_answer_stream(query, search_results, custom_instructions, parent=parent):
+            for chunk in service.generate_answer_stream(query, search_results, custom_instructions, parent=parent, retrieved_logs=retrieved_logs):
                 ai_answer_chunks.append(chunk)
                 yield self._sse_event('stream_token', {'token': chunk})
             ai_answer = ''.join(ai_answer_chunks).strip()
 
-            yield self._sse_event('progress', {'step': 3, 'total': 4, 'message': '태그 추출 + 마크다운 변환 중...'})
+            yield self._sse_event('progress', {'step': 4, 'total': 5, 'message': '태그 추출 + 마크다운 변환 중...'})
             with ThreadPoolExecutor(max_workers=2) as executor:
                 tags_future = executor.submit(service.extract_tags, query, ai_answer)
                 md_future = executor.submit(service.convert_to_markdown, query, ai_answer, search_results)
                 tag_names = tags_future.result()
                 markdown = md_future.result()
 
-            yield self._sse_event('progress', {'step': 4, 'total': 4, 'message': '저장 중...'})
+            yield self._sse_event('progress', {'step': 5, 'total': 5, 'message': '저장 중...'})
 
             log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names, parent=parent)
 

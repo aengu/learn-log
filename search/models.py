@@ -1,6 +1,7 @@
 from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from django.db import models
 from django.utils import timezone
+from pgvector.django import VectorField
 
 
 class Tag(models.Model):
@@ -87,6 +88,12 @@ class LearningLog(models.Model):
     is_bookmarked = models.BooleanField(
         default=False,
         verbose_name="북마크"
+    )
+    embedding = VectorField(
+        dimensions=1024,  # mistral-embed 차원
+        null=True,
+        blank=True,
+        verbose_name="임베딩"
     )
     view_count = models.PositiveIntegerField(
         default=0,

@@ -3,8 +3,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 from groq import Groq
 from mistralai.client import Mistral
+from pgvector.django import CosineDistance
 from tavily import TavilyClient
 from django.conf import settings
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from django.utils.text import slugify
 
 from ..models import LearningLog, Tag, Reference
@@ -22,6 +24,7 @@ class LearnlogService:
 
     ANSWER_MODEL = "mistral-large-latest"
     LIGHT_MODEL = "llama-3.3-70b-versatile"
+    EMBED_MODEL = "mistral-embed"  # 1024차원
 
     def __init__(self):
         self.mistral_client = Mistral(
@@ -36,32 +39,36 @@ class LearnlogService:
         메인 처리 로직 (HTMX용 - 동기 처리)
         SSE 스트리밍은 QuerySSEView에서 각 메서드를 직접 호출
         """
-        # 1. 웹 검색
+        # 1. 과거 학습 기록 검색 (RAG retrieval)
+        retrieved_logs = self.retrieve_similar_logs(user_query)
+
+        # 2. 웹 검색
         search_results = self.search_official_docs(user_query)
 
-        # 2. AI 답변 생성
-        ai_answer = self.generate_answer(user_query, search_results)
+        # 3. AI 답변 생성
+        ai_answer = self.generate_answer(user_query, search_results, retrieved_logs=retrieved_logs)
 
-        # 3. 태그 추출 + 마크다운 변환 (병렬)
+        # 4. 태그 추출 + 마크다운 변환 (병렬)
         with ThreadPoolExecutor(max_workers=2) as executor:
             tags_future = executor.submit(self.extract_tags, user_query, ai_answer)
             md_future = executor.submit(self.convert_to_markdown, user_query, ai_answer, search_results)
             tag_names = tags_future.result()
             markdown = md_future.result()
 
-        # 4. DB 저장
+        # 5. DB 저장
         return self.save_learning_log(user_query, ai_answer, markdown, search_results, tag_names)
 
     def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names, parent=None):
         """
         LearningLog 및 관련 데이터 DB 저장
         """
-        # LearningLog 생성
+        # LearningLog 생성 (임베딩 실패해도 저장은 진행 — _embed가 None 반환)
         log = LearningLog.objects.create(
             query=query,
             ai_response=ai_answer,
             markdown_content=markdown,
             parent=parent,
+            embedding=self._embed(self._embedding_input(query, ai_answer)),
         )
 
         # Reference 생성 및 연결
@@ -103,6 +110,76 @@ class LearnlogService:
             return 'blog'
         else:
             return 'other'
+
+    # ── RAG: 임베딩 + 하이브리드 검색 ──────────────────────────────────
+
+    @staticmethod
+    def _embedding_input(query, ai_response):
+        """임베딩 대상 텍스트. markdown_content는 ai_response와 중복이라 제외"""
+        return f"{query}\n{ai_response[:2000]}"
+
+    def _embed(self, text):
+        """
+        mistral-embed로 1024차원 임베딩 생성.
+        실패 시 None 반환 — 저장·검색 메인 흐름을 막지 않는다.
+        """
+        try:
+            response = self.mistral_client.embeddings.create(
+                model=self.EMBED_MODEL,
+                inputs=[text],
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"임베딩 생성 오류: {e}")
+            return None
+
+    def retrieve_similar_logs(self, query, k=3, exclude_pks=None):
+        """
+        과거 학습 로그 하이브리드 검색 (RAG retrieval).
+        - FTS(키워드 정확 매칭)와 벡터 코사인 유사도(의미 매칭)를 각각 top-10 조회
+        - RRF로 두 순위를 결합해 top-k 반환
+        - 임베딩 실패 시 FTS 결과만으로 동작
+        """
+        base = LearningLog.objects.all()
+        if exclude_pks:
+            base = base.exclude(pk__in=exclude_pks)
+
+        fts_vector = (
+            SearchVector('query', weight='A', config='simple') +
+            SearchVector('ai_response', weight='B', config='simple')
+        )
+        fts_query = SearchQuery(query, config='simple')
+        fts_pks = list(
+            base.annotate(rank=SearchRank(fts_vector, fts_query))
+            .filter(rank__gt=0)
+            .order_by('-rank')
+            .values_list('pk', flat=True)[:10]
+        )
+
+        vec_pks = []
+        query_embedding = self._embed(query)
+        if query_embedding is not None:
+            vec_pks = list(
+                base.exclude(embedding=None)
+                .order_by(CosineDistance('embedding', query_embedding))
+                .values_list('pk', flat=True)[:10]
+            )
+
+        merged_pks = self._rrf_merge([fts_pks, vec_pks])[:k]
+        logs = LearningLog.objects.in_bulk(merged_pks)
+        return [logs[pk] for pk in merged_pks if pk in logs]
+
+    @staticmethod
+    def _rrf_merge(rankings, k=60):
+        """
+        Reciprocal Rank Fusion: 각 순위 목록에서 1/(k+순위)를 합산해 재정렬.
+        점수 스케일이 다른 FTS rank와 코사인 거리를 순위로만 결합한다 (k=60은 관례값).
+        """
+        scores = {}
+        for ranking in rankings:
+            for rank, pk in enumerate(ranking, start=1):
+                scores[pk] = scores.get(pk, 0.0) + 1.0 / (k + rank)
+        return sorted(scores, key=scores.get, reverse=True)
 
     def search_official_docs(self, query, parent=None):
         """
@@ -176,6 +253,20 @@ class LearnlogService:
     )
 
     @staticmethod
+    def _build_retrieved_context(retrieved_logs):
+        """
+        RAG: 하이브리드 검색으로 찾은 과거 로그 블록. 로그당 답변 500자 절삭
+        (0610 벤치마크: 전문 주입은 답변이 길어져 max_tokens에 잘림)
+        """
+        if not retrieved_logs:
+            return ""
+        blocks = "\n".join(
+            f"[기록{i}] Q: {log.query}\nA: {log.ai_response[:500]}"
+            for i, log in enumerate(retrieved_logs, start=1)
+        )
+        return f"과거에 학습한 관련 기록:\n{blocks}\n\n"
+
+    @staticmethod
     def _build_conversation_context(parent):
         """
         꼬리질문용 이전 대화 블록. 직속 부모의 질문 + 답변 500자만 포함한다.
@@ -189,7 +280,7 @@ class LearnlogService:
             f"[이전 답변] {parent.ai_response[:500]}\n\n"
         )
 
-    def generate_answer(self, query, search_results, custom_instructions=None, parent=None):
+    def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None):
         """
         Mistral API로 AI 답변 생성
         """
@@ -200,17 +291,15 @@ class LearnlogService:
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
+        retrieved = self._build_retrieved_context(retrieved_logs)
 
-        prompt = textwrap.dedent(f"""
-            개발 질문에 한국어로 답변하세요.
-
-            {conversation}질문: {query}
-
-            참고:
-            {context if context else "없음"}
-
-            {instructions}
-        """).strip()
+        # 개행 포함 블록을 f-string에 넣으면 dedent가 무효라 직접 조립
+        prompt = (
+            "개발 질문에 한국어로 답변하세요.\n\n"
+            f"{retrieved}{conversation}질문: {query}\n\n"
+            f"참고:\n{context if context else '없음'}\n\n"
+            f"{instructions}"
+        )
 
         try:
             response = self.mistral_client.chat.complete(
@@ -224,7 +313,7 @@ class LearnlogService:
             print(f"AI 답변 생성 오류: {e}")
             return "답변 생성 중 오류가 발생했습니다."
 
-    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None):
+    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None):
         """
         Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield
         """
@@ -235,17 +324,15 @@ class LearnlogService:
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
+        retrieved = self._build_retrieved_context(retrieved_logs)
 
-        prompt = textwrap.dedent(f"""
-            개발 질문에 한국어로 답변하세요.
-
-            {conversation}질문: {query}
-
-            참고:
-            {context if context else "없음"}
-
-            {instructions}
-        """).strip()
+        # 개행 포함 블록을 f-string에 넣으면 dedent가 무효라 직접 조립
+        prompt = (
+            "개발 질문에 한국어로 답변하세요.\n\n"
+            f"{retrieved}{conversation}질문: {query}\n\n"
+            f"참고:\n{context if context else '없음'}\n\n"
+            f"{instructions}"
+        )
 
         try:
             stream = self.mistral_client.chat.stream(

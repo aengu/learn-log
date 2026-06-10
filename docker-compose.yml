@@ -4,7 +4,7 @@ name: learnlog
 
 services:
   db:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:pg18  # postgres 18 + pgvector 확장 포함
     container_name: learnlog_db
     environment:
       POSTGRES_DB: learnlog
