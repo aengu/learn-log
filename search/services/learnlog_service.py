@@ -170,7 +170,10 @@ class LearnlogService:
             print(f"검색어 변환 오류: {e}")
             return query
 
-    DEFAULT_INSTRUCTIONS = "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함."
+    DEFAULT_INSTRUCTIONS = (
+        "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함. "
+        "코드 예시는 질문에 언어/스택 지정이 없으면 Python(백엔드 맥락은 Django) 기준으로."
+    )
 
     @staticmethod
     def _build_conversation_context(parent):
