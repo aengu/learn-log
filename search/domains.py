@@ -5,6 +5,7 @@
 - 버전 path가 있는 문서는 current/stable/메이저 경로까지 명시해서
   Tavily가 옛 버전·릴리스 노트를 결과에 포함하지 않도록 함
 """
+import re
 
 TECH_DOCS_MAP = {
     # 컨테이너 / 인프라
@@ -121,6 +122,25 @@ TECH_DOCS_MAP = {
 }
 
 
+def _tech_in_query(tech: str, query_lower: str) -> bool:
+    """
+    substring 오매칭을 막는 키워드 매칭 ("django"의 'go', "javascript"의 'java' 등).
+    - ASCII 키: 영숫자 경계 검사. 표준 \\b는 한글을 단어문자로 취급해
+      "go언어"처럼 한글이 붙는 표기가 매칭 실패하므로, 경계를 [a-z0-9] 부재로 정의.
+    - 한글 키: 조사가 붙어("도커를") 경계 검사가 불가. 대신 맵에 등록된 더 긴 키
+      ("자바스크립트")의 등장 부분을 지운 뒤 짧은 키("자바")를 검사한다.
+    """
+    if tech.isascii():
+        pattern = rf"(?<![a-z0-9]){re.escape(tech)}(?![a-z0-9])"
+        return re.search(pattern, query_lower) is not None
+
+    longer_keys = [k for k in TECH_DOCS_MAP if tech in k and k != tech]
+    cleaned = query_lower
+    for k in longer_keys:
+        cleaned = cleaned.replace(k, ' ')
+    return tech in cleaned
+
+
 def get_domains_for_query(query: str) -> list[str] | None:
     """
     질문에서 키워드를 추출하여 관련 공식 문서 도메인 반환.
@@ -131,7 +151,7 @@ def get_domains_for_query(query: str) -> list[str] | None:
     domains = []
 
     for tech, urls in TECH_DOCS_MAP.items():
-        if tech in query_lower:
+        if _tech_in_query(tech, query_lower):
             domains.extend(urls)
 
     # 중복 제거
