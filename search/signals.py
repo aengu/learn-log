@@ -18,7 +18,7 @@ def update_streak_on_log(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=ExerciseAttempt)
 def update_streak_on_attempt(sender, instance, created, **kwargs):
-    """복습 정답 시에만 streak 갱신 (오답·채점중은 무시)"""
-    if created and instance.is_correct:
+    """복습 시도 시 streak 갱신 — 오답이어도 복습 행위 자체를 활동으로 인정"""
+    if created:
         streak = Streak.load()
         streak.record_activity(instance.created_at.date())

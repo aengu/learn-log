@@ -3,6 +3,9 @@
 {% block title %}Learn Log - AI 개발 지식 베이스{% endblock %}
 
 {% block content %}
+<!-- 일일 학습일지 팝업 (자정 이후 첫 방문 시 lazy 생성, 요약 LLM 호출이 있어 비동기 로드) -->
+<div hx-get="{% url 'search:journal_popup' %}" hx-trigger="load" hx-swap="innerHTML"></div>
+
 <div class="min-h-screen flex flex-col">
     <!-- Main Content -->
     <main class="flex-1 container mx-auto max-w-4xl px-4 py-8">

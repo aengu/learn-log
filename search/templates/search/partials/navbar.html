@@ -22,9 +22,13 @@
                 </li>
                 <li>
                     {% if url_name == 'exercise_list' or url_name == 'exercise_detail' %}
-                        <span class="opacity-40">복습하기</span>
+                        <span class="opacity-40">복습하기
+                            {% if review_due_count %}<span class="badge badge-error badge-sm text-white">{{ review_due_count }}</span>{% endif %}
+                        </span>
                     {% else %}
-                        <a href="{% url 'search:exercise_list' %}">복습하기</a>
+                        <a href="{% url 'search:exercise_list' %}">복습하기
+                            {% if review_due_count %}<span class="badge badge-error badge-sm text-white">{{ review_due_count }}</span>{% endif %}
+                        </a>
                     {% endif %}
                 </li>
                 <li>
@@ -54,9 +58,13 @@
         {% endif %}
 
         {% if url_name == 'exercise_list' or url_name == 'exercise_detail' %}
-            <span class="btn btn-ghost btn-sm pointer-events-none opacity-40">복습하기</span>
+            <span class="btn btn-ghost btn-sm pointer-events-none opacity-40">복습하기
+                {% if review_due_count %}<span class="badge badge-error badge-sm text-white">{{ review_due_count }}</span>{% endif %}
+            </span>
         {% else %}
-            <a href="{% url 'search:exercise_list' %}" class="btn btn-ghost btn-sm">복습하기</a>
+            <a href="{% url 'search:exercise_list' %}" class="btn btn-ghost btn-sm">복습하기
+                {% if review_due_count %}<span class="badge badge-error badge-sm text-white">{{ review_due_count }}</span>{% endif %}
+            </a>
         {% endif %}
 
         {% if url_name == 'stats' %}

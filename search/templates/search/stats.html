@@ -17,6 +17,15 @@
         cursor: pointer;
     }
     .heatmap-level-0 { background: oklch(var(--b3)); }
+    /* hover 일지 툴팁: 여러 줄 + 줄바꿈 허용 */
+    .heatmap-cell.tooltip:before {
+        white-space: pre-line;
+        max-width: 16rem;
+        width: max-content;
+        text-align: left;
+        line-height: 1.5;
+        z-index: 10;
+    }
     .heatmap-level-1 { background: #9be9a8; }
     .heatmap-level-2 { background: #40c463; }
     .heatmap-level-3 { background: #30a14e; }
@@ -180,11 +189,24 @@
     data.forEach(item => {
         const cell = document.createElement('div');
         cell.className = `heatmap-cell heatmap-level-${item.level}`;
-        cell.title = `${item.date}: ${item.count}건`;
 
+        // hover 일일일지 툴팁: 날짜·불꽃·통계 + (있으면) LLM 요약
+        const d = new Date(item.date);
+        let tip = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+        if (item.streak_day) tip += ` · 🔥${item.streak_day}일차`;
+        if (item.count === 0) {
+            tip += '\n활동 없음';
+        } else {
+            const failed = item.attempts - item.passed;
+            tip += `\n질문 ${item.questions}개 · 연습문제 ${item.attempts}개`;
+            if (item.attempts > 0) tip += ` (통과 ${item.passed}/미통과 ${failed})`;
+        }
+        if (item.summary) tip += `\n${item.summary}`;
+
+        cell.title = tip;
         // DaisyUI tooltip
         cell.classList.add('tooltip', 'tooltip-top');
-        cell.setAttribute('data-tip', `${item.date}: ${item.count}건`);
+        cell.setAttribute('data-tip', tip);
 
         grid.appendChild(cell);
     });

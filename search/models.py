@@ -61,7 +61,7 @@ class LearningLog(models.Model):
     )
     ai_response = models.TextField(verbose_name="AI 답변")
     markdown_content = models.TextField(verbose_name="마크다운 내용")
-    
+
     references = models.ManyToManyField(
         Reference,
         related_name='learning_logs',
@@ -260,3 +260,26 @@ class Streak(models.Model):
         self.longest_streak = max(self.longest_streak, self.current_streak)
         self.last_active_date = today
         self.save(update_fields=['current_streak', 'longest_streak', 'last_active_date'])
+
+class DailyJournal(models.Model):
+    """
+    일일 학습일지 — 해당 날짜의 활동 통계 + LLM 한 줄 요약.
+    cron 없이 자정 이후 첫 방문 시점에 lazy 생성된다 (JournalService.ensure_journal).
+    """
+    date = models.DateField(unique=True, verbose_name="날짜")
+    streak_day = models.PositiveIntegerField(default=0, verbose_name="불꽃 n일차")
+    question_count = models.PositiveIntegerField(default=0, verbose_name="질문 수")
+    attempt_count = models.PositiveIntegerField(default=0, verbose_name="연습문제 시도 수")
+    pass_count = models.PositiveIntegerField(default=0, verbose_name="통과 수")
+    fail_count = models.PositiveIntegerField(default=0, verbose_name="미통과 수")
+    summary = models.TextField(blank=True, verbose_name="LLM 요약")
+    is_dismissed = models.BooleanField(default=False, verbose_name="팝업 다시보지않기")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일")
+
+    class Meta:
+        ordering = ['-date']
+        verbose_name = "일일 학습일지"
+        verbose_name_plural = "일일 학습일지"
+
+    def __str__(self):
+        return f"{self.date} 학습일지 (🔥{self.streak_day}일차)"

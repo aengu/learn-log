@@ -8,6 +8,8 @@ from .api_views import (
     ExerciseGenerateAPIView,
     ExerciseAttemptAPIView,
     ExerciseCoachAPIView,
+    JournalPopupAPIView,
+    JournalDismissAPIView,
 )
 
 app_name = 'search'
@@ -32,4 +34,8 @@ urlpatterns = [
     path('api/exercises/generate/<int:log_pk>/', ExerciseGenerateAPIView.as_view(), name='exercise_generate'),
     path('api/exercises/<int:pk>/attempt/', ExerciseAttemptAPIView.as_view(), name='exercise_attempt'),
     path('api/attempts/<int:pk>/coach/', ExerciseCoachAPIView.as_view(), name='exercise_coach'),
+
+    # Journal API
+    path('api/journal/popup/', JournalPopupAPIView.as_view(), name='journal_popup'),
+    path('api/journal/<int:pk>/dismiss/', JournalDismissAPIView.as_view(), name='journal_dismiss'),
 ]

@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views import View
 from django.core.paginator import Paginator
 
-from .models import LearningLog, Exercise, ExerciseAttempt, Streak
+from .models import LearningLog, Exercise, ExerciseAttempt, Streak, DailyJournal
 from .services import ExerciseService
 
 
@@ -102,8 +102,16 @@ class StatsView(View):
             .annotate(cnt=Count('id'))
             .values_list('date', 'cnt')
         )
-        # 복습 정답 건수 (날짜별)
+        # 복습 시도 건수 (날짜별) — streak과 동일하게 오답 시도도 활동으로 집계
         attempt_by_date = dict(
+            ExerciseAttempt.objects.filter(created_at__date__gte=year_ago)
+            .annotate(date=TruncDate('created_at'))
+            .values('date')
+            .annotate(cnt=Count('id'))
+            .values_list('date', 'cnt')
+        )
+        # 복습 통과 건수 (날짜별) — hover 일지용
+        pass_by_date = dict(
             ExerciseAttempt.objects.filter(
                 created_at__date__gte=year_ago, is_correct=True
             )
@@ -112,6 +120,10 @@ class StatsView(View):
             .annotate(cnt=Count('id'))
             .values_list('date', 'cnt')
         )
+        # 일일 학습일지 (날짜별) — hover 시 불꽃 일차 + 요약 표시
+        journal_by_date = {
+            j.date: j for j in DailyJournal.objects.filter(date__gte=year_ago)
+        }
 
         # 두 소스 합산 → 5단계 level로 변환 (GitHub 잔디 색상 매핑)
         heatmap_data = []
@@ -135,10 +147,17 @@ class StatsView(View):
                 level = 3
             else:
                 level = 4
+            journal = journal_by_date.get(day)
+            attempts = attempt_by_date.get(day, 0)
             heatmap_data.append({
                 'date': day.isoformat(),
                 'count': c,
                 'level': level,
+                'questions': log_by_date.get(day, 0),
+                'attempts': attempts,
+                'passed': pass_by_date.get(day, 0),
+                'streak_day': journal.streak_day if journal else None,
+                'summary': journal.summary if journal else '',
             })
             day += timedelta(days=1)
 

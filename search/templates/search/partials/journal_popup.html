@@ -1,0 +1,33 @@
+<div class="modal modal-open" id="journal-modal">
+    <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg">
+            🔥 {{ journal.streak_day }}일차 — {{ journal.date|date:"n월 j일" }} 학습일지
+        </h3>
+
+        <div class="stats stats-vertical sm:stats-horizontal shadow w-full my-4">
+            <div class="stat py-3">
+                <div class="stat-title text-sm">질문</div>
+                <div class="stat-value text-2xl">{{ journal.question_count }}개</div>
+            </div>
+            <div class="stat py-3">
+                <div class="stat-title text-sm">연습문제</div>
+                <div class="stat-value text-2xl">{{ journal.attempt_count }}개</div>
+                <div class="stat-desc">통과 {{ journal.pass_count }} / 미통과 {{ journal.fail_count }}</div>
+            </div>
+        </div>
+
+        {% if journal.summary %}
+        <p class="text-sm bg-base-200 rounded-box p-4">{{ journal.summary }}</p>
+        {% endif %}
+
+        <div class="modal-action">
+            <button class="btn btn-ghost btn-sm"
+                    hx-post="{% url 'search:journal_dismiss' journal.pk %}"
+                    hx-target="#journal-modal"
+                    hx-swap="outerHTML">다시 보지 않기</button>
+            <button class="btn btn-primary btn-sm"
+                    onclick="document.getElementById('journal-modal').remove()">닫기</button>
+        </div>
+    </div>
+    <div class="modal-backdrop" onclick="document.getElementById('journal-modal').remove()"></div>
+</div>

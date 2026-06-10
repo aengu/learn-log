@@ -11,8 +11,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import LearningLog, Exercise, ExerciseAttempt
-from .services import LearnlogService, ExerciseService
+from .models import LearningLog, Exercise, ExerciseAttempt, DailyJournal
+from .services import LearnlogService, ExerciseService, JournalService
 from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
 
 EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
@@ -299,3 +299,36 @@ class ExerciseCoachAPIView(View):
             })
         except Exception as e:
             return HttpResponse(f'<div class="alert alert-warning">코멘트 생성 오류: {e}</div>')
+
+# ============================================
+# 일일 학습일지 API
+# ============================================
+
+class JournalPopupAPIView(View):
+    """
+    일일 학습일지 팝업 - HTMX GET (메인 페이지 load 시 호출).
+    오늘 이전 가장 최근 활동일의 일지를 lazy 생성해서 모달로 반환.
+    다시보지않기 처리된 일지면 빈 응답.
+    """
+    def get(self, request):
+        try:
+            journal = JournalService().get_pending_popup()
+        except Exception as e:
+            print(f"일지 팝업 오류: {e}")
+            return HttpResponse('')  # 팝업은 부가 기능 — 실패해도 메인 흐름을 막지 않는다
+
+        if journal is None:
+            return HttpResponse('')
+        return render(request, 'search/partials/journal_popup.html', {'journal': journal})
+
+
+class JournalDismissAPIView(View):
+    """일지 팝업 '다시 보지 않기' - HTMX POST"""
+    def post(self, request, pk):
+        try:
+            journal = DailyJournal.objects.get(pk=pk)
+        except DailyJournal.DoesNotExist:
+            return HttpResponse('')
+        journal.is_dismissed = True
+        journal.save(update_fields=['is_dismissed'])
+        return HttpResponse('')  # 모달 영역을 빈 내용으로 교체 → 닫힘
