@@ -1,3 +1,4 @@
+import json
 import textwrap
 from concurrent.futures import ThreadPoolExecutor
 
@@ -181,6 +182,66 @@ class LearnlogService:
                 scores[pk] = scores.get(pk, 0.0) + 1.0 / (k + rank)
         return sorted(scores, key=scores.get, reverse=True)
 
+    # ── 에이전트: 라우팅 판단 (search_agent의 router 노드에서 호출) ──
+
+    def decide_route(self, query, retrieved_logs):
+        """
+        라우터: 검색된 과거 로그를 답변 컨텍스트로 쓸지(use_logs),
+        웹 검색 보강이 필요한지(need_web)를 LLM이 판단.
+        실패 시 둘 다 True — 라우팅 도입 전 파이프라인과 동일한 안전 기본값.
+        """
+        log_lines = "\n".join(
+            f"- {log.query}: {log.ai_response[:200]}"
+            for log in retrieved_logs
+        ) or "(검색된 기록 없음)"
+        prompt = textwrap.dedent(f"""
+            사용자의 개발 질문과, 사용자가 과거에 학습한 기록 목록입니다.
+
+            질문: {query}
+
+            과거 학습 기록 (제목: 내용 앞부분):
+            {log_lines}
+
+            JSON으로만 응답하세요 (```없이):
+            {{
+              "use_logs": true/false,
+              "need_web": true/false,
+              "reason": "판단 근거 한 문장"
+            }}
+
+            판단 기준:
+            - use_logs: 기록이 질문과 같은 주제를 다뤄서 답변 컨텍스트로 유용한가.
+              주제가 다른 기록뿐이면 false (무관한 기록을 넣으면 답변 품질이 떨어짐)
+            - need_web: 기록만으로 부족해서 웹 검색 보강이 필요한가.
+              기록이 질문의 답을 이미 충분히 담고 있을 때만 false
+        """).strip()
+        try:
+            result = self._call_groq_json(prompt, max_tokens=150)
+            return {
+                'use_logs': bool(result.get('use_logs', True)),
+                'need_web': bool(result.get('need_web', True)),
+                'reason': result.get('reason', ''),
+            }
+        except Exception as e:
+            print(f"라우팅 판단 오류: {e}")
+            return {'use_logs': True, 'need_web': True, 'reason': '판단 실패 — 기본 경로'}
+
+    def _call_groq_json(self, prompt, max_tokens=300):
+        """Groq 경량 모델 호출 후 JSON 파싱 (코드펜스 제거 포함)"""
+        response = self.groq_client.chat.completions.create(
+            model=self.LIGHT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=max_tokens,
+        )
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith('```'):
+            parts = raw.split('```')
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith('json'):
+                raw = raw[4:]
+        return json.loads(raw.strip())
+
     def search_official_docs(self, query, parent=None):
         """
         Tavily API로 공식 문서 검색
@@ -253,15 +314,16 @@ class LearnlogService:
     )
 
     @staticmethod
-    def _build_retrieved_context(retrieved_logs):
+    def _build_retrieved_context(retrieved_logs, limit=500):
         """
-        RAG: 하이브리드 검색으로 찾은 과거 로그 블록. 로그당 답변 500자 절삭
-        (0610 벤치마크: 전문 주입은 답변이 길어져 max_tokens에 잘림)
+        RAG: 하이브리드 검색으로 찾은 과거 로그 블록. 로그당 답변 limit자 절삭
+        (0610 벤치마크: 전문 주입은 답변이 길어져 max_tokens에 잘림).
+        웹검색 생략 경로는 Tavily 블록이 빠진 예산만큼 늘려 받는다 (search_agent).
         """
         if not retrieved_logs:
             return ""
         blocks = "\n".join(
-            f"[기록{i}] Q: {log.query}\nA: {log.ai_response[:500]}"
+            f"[기록{i}] Q: {log.query}\nA: {log.ai_response[:limit]}"
             for i, log in enumerate(retrieved_logs, start=1)
         )
         return f"과거에 학습한 관련 기록:\n{blocks}\n\n"
@@ -280,7 +342,7 @@ class LearnlogService:
             f"[이전 답변] {parent.ai_response[:500]}\n\n"
         )
 
-    def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None):
+    def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
         """
         Mistral API로 AI 답변 생성
         """
@@ -291,7 +353,7 @@ class LearnlogService:
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
-        retrieved = self._build_retrieved_context(retrieved_logs)
+        retrieved = self._build_retrieved_context(retrieved_logs, limit=retrieved_limit)
 
         # 개행 포함 블록을 f-string에 넣으면 dedent가 무효라 직접 조립
         prompt = (
@@ -313,7 +375,7 @@ class LearnlogService:
             print(f"AI 답변 생성 오류: {e}")
             return "답변 생성 중 오류가 발생했습니다."
 
-    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None):
+    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
         """
         Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield
         """
@@ -324,7 +386,7 @@ class LearnlogService:
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
-        retrieved = self._build_retrieved_context(retrieved_logs)
+        retrieved = self._build_retrieved_context(retrieved_logs, limit=retrieved_limit)
 
         # 개행 포함 블록을 f-string에 넣으면 dedent가 무효라 직접 조립
         prompt = (

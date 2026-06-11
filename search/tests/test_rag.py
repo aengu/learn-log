@@ -83,3 +83,9 @@ class TestRetrievedContext:
         block = LearnlogService._build_retrieved_context([log])
         assert "가" * 500 in block
         assert "가" * 501 not in block
+
+    def test_limit_파라미터로_절삭_길이_조절(self):
+        log = LearningLogFactory.build(query="질문", ai_response="가" * 2000)
+        block = LearnlogService._build_retrieved_context([log], limit=1500)
+        assert "가" * 1500 in block
+        assert "가" * 1501 not in block

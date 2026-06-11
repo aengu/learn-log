@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import LearningLog, Exercise, ExerciseAttempt, DailyJournal
-from .services import LearnlogService, ExerciseService, JournalService
+from .services import LearnlogService, ExerciseService, JournalService, build_search_agent
 from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
 
 EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
@@ -70,33 +70,51 @@ class QuerySSEView(View):
             content_type='text/event-stream'
         )
 
+    TOTAL_STEPS = 6  # 에이전트 노드 4 + 태그/마크다운 + 저장
+
     def _process_stream(self, query, custom_instructions=None, parent=None):
         try:
             service = LearnlogService()
+            agent = build_search_agent(service)
+            total = self.TOTAL_STEPS
 
-            yield self._sse_event('progress', {'step': 1, 'total': 5, 'message': '내 학습 기록 검색 중...'})
-            # 꼬리질문이면 부모는 별도 컨텍스트로 들어가므로 retrieval에서 제외
-            exclude_pks = [parent.pk] if parent else None
-            retrieved_logs = service.retrieve_similar_logs(query, exclude_pks=exclude_pks)
+            yield self._sse_event('progress', {'step': 1, 'total': total, 'message': '내 학습 기록 검색 중...'})
 
-            yield self._sse_event('progress', {'step': 2, 'total': 5, 'message': '공식 문서 검색 중...'})
-            search_results = service.search_official_docs(query, parent=parent)
+            # updates: 노드 완료 시점의 상태 변화 / custom: generate 노드의 토큰
+            state = {}
+            stream = agent.stream(
+                {'query': query, 'custom_instructions': custom_instructions, 'parent': parent},
+                stream_mode=['updates', 'custom'],
+            )
+            for mode, chunk in stream:
+                if mode == 'custom':
+                    if 'token' in chunk:
+                        yield self._sse_event('stream_token', {'token': chunk['token']})
+                    continue
 
-            yield self._sse_event('progress', {'step': 3, 'total': 5, 'message': 'AI 답변 생성 중...'})
-            ai_answer_chunks = []
-            for chunk in service.generate_answer_stream(query, search_results, custom_instructions, parent=parent, retrieved_logs=retrieved_logs):
-                ai_answer_chunks.append(chunk)
-                yield self._sse_event('stream_token', {'token': chunk})
-            ai_answer = ''.join(ai_answer_chunks).strip()
+                for node, delta in chunk.items():
+                    state.update(delta or {})
+                    if node == 'retrieve_logs':
+                        yield self._sse_event('progress', {'step': 2, 'total': total, 'message': '검색 경로 판단 중...'})
+                    elif node == 'router':
+                        if state.get('need_web', True):
+                            yield self._sse_event('progress', {'step': 3, 'total': total, 'message': '공식 문서 검색 중...'})
+                        else:
+                            yield self._sse_event('progress', {'step': 4, 'total': total, 'message': 'AI 답변 생성 중... (기존 기록으로 충분)'})
+                    elif node == 'web_search':
+                        yield self._sse_event('progress', {'step': 4, 'total': total, 'message': 'AI 답변 생성 중...'})
 
-            yield self._sse_event('progress', {'step': 4, 'total': 5, 'message': '태그 추출 + 마크다운 변환 중...'})
+            ai_answer = state.get('answer', '')
+            search_results = state.get('search_results') or {'results': []}
+
+            yield self._sse_event('progress', {'step': 5, 'total': total, 'message': '태그 추출 + 마크다운 변환 중...'})
             with ThreadPoolExecutor(max_workers=2) as executor:
                 tags_future = executor.submit(service.extract_tags, query, ai_answer)
                 md_future = executor.submit(service.convert_to_markdown, query, ai_answer, search_results)
                 tag_names = tags_future.result()
                 markdown = md_future.result()
 
-            yield self._sse_event('progress', {'step': 5, 'total': 5, 'message': '저장 중...'})
+            yield self._sse_event('progress', {'step': 6, 'total': total, 'message': '저장 중...'})
 
             log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names, parent=parent)
 

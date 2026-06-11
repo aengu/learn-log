@@ -233,6 +233,7 @@ function submitQuery(query, parentPk) {
                             }
                         } else if (data.step !== undefined) {
                             // progress 이벤트
+                            progressBar.max = data.total;
                             progressBar.value = data.step;
                             progressPercent.textContent = Math.round((data.step / data.total) * 100) + '%';
                             progressMessage.textContent = data.message;
