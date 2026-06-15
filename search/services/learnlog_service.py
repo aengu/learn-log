@@ -59,10 +59,13 @@ class LearnlogService:
         # 5. DB 저장
         return self.save_learning_log(user_query, ai_answer, markdown, search_results, tag_names)
 
-    def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names, parent=None):
+    def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names, parent=None, answer_source='', is_truncated=False):
         """
         LearningLog 및 관련 데이터 DB 저장
         """
+        # 컨텍스트가 있었던 답변만 비동기 검증 대상 (verify_log가 pending을 풀어준다)
+        verification = 'pending' if answer_source in ('both', 'logs', 'web') else ''
+
         # LearningLog 생성 (임베딩 실패해도 저장은 진행 — _embed가 None 반환)
         log = LearningLog.objects.create(
             query=query,
@@ -70,6 +73,9 @@ class LearnlogService:
             markdown_content=markdown,
             parent=parent,
             embedding=self._embed(self._embedding_input(query, ai_answer)),
+            answer_source=answer_source,
+            is_truncated=is_truncated,
+            verification=verification,
         )
 
         # Reference 생성 및 연결
@@ -213,7 +219,9 @@ class LearnlogService:
             - use_logs: 기록이 질문과 같은 주제를 다뤄서 답변 컨텍스트로 유용한가.
               주제가 다른 기록뿐이면 false (무관한 기록을 넣으면 답변 품질이 떨어짐)
             - need_web: 기록만으로 부족해서 웹 검색 보강이 필요한가.
-              기록이 질문의 답을 이미 충분히 담고 있을 때만 false
+              기록이 질문의 답을 이미 충분히 담고 있을 때만 false.
+              단, 구체적인 버전·설정/옵션 이름·API 시그니처·정확한 수치·최신 동향을 묻는
+              질문은 기록이 충분해 보여도 true (기록은 LLM 생성물이라 공식 문서 대조 필요)
         """).strip()
         try:
             result = self._call_groq_json(prompt, max_tokens=150)
@@ -225,6 +233,69 @@ class LearnlogService:
         except Exception as e:
             print(f"라우팅 판단 오류: {e}")
             return {'use_logs': True, 'need_web': True, 'reason': '판단 실패 — 기본 경로'}
+
+    def check_consistency(self, ai_response, retrieved_logs=None, retrieved_limit=500, search_results=None):
+        """
+        답변이 제공된 컨텍스트와 모순되는지 LLM Judge로 판정만 한다 (저장 없음).
+        Judge는 Groq(생성 모델 Mistral과 다른 계열)라 교차 검증 효과가 있다.
+        반환: {'consistent': bool, 'note': str} — 컨텍스트가 없으면 None.
+        판정 실패는 예외로 올린다 (호출자가 미검증 처리).
+        """
+        retrieved = self._build_retrieved_context(retrieved_logs or [], limit=retrieved_limit)
+        web = "\n".join(
+            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
+            for r in (search_results or {}).get('results', [])[:2]
+        )
+        context = f"{retrieved}{web}".strip()
+        if not context:
+            return None
+
+        prompt = textwrap.dedent(f"""
+            AI 답변이 생성에 사용된 참고 컨텍스트와 모순되는지 검사하세요.
+
+            참고 컨텍스트:
+            {context}
+
+            답변:
+            {ai_response[:3000]}
+
+            JSON으로만 응답하세요 (```없이):
+            {{
+              "consistent": true/false,
+              "note": "모순이 있으면 어떤 주장이 어긋나는지 한 문장 (없으면 빈 문자열)"
+            }}
+
+            판단 기준:
+            - 답변의 주장(수치, 동작 설명, API 사용법)이 컨텍스트 내용과 명백히 어긋나면 consistent=false
+            - 컨텍스트에 없는 내용을 답변이 추가로 다루는 것은 모순이 아님
+        """).strip()
+        result = self._call_groq_json(prompt, max_tokens=200)
+        consistent = bool(result.get('consistent', True))
+        return {
+            'consistent': consistent,
+            'note': '' if consistent else result.get('note', ''),
+        }
+
+    def verify_log(self, log, retrieved_logs=None, retrieved_limit=500, search_results=None):
+        """
+        저장된 로그를 검사하고 결과를 verification 필드에 기록.
+        저장 후 백그라운드 스레드에서 호출된다 — 응답 흐름을 막지 않고, 결과는 배지로만 표시.
+        컨텍스트가 없거나 검증에 실패하면 미검증('')으로 남긴다.
+        """
+        try:
+            verdict = self.check_consistency(
+                log.ai_response, retrieved_logs, retrieved_limit, search_results,
+            )
+        except Exception as e:
+            print(f"비동기 검증 오류: {e}")
+            verdict = None
+        if verdict is None:
+            log.verification = ''
+            log.verification_note = ''
+        else:
+            log.verification = 'passed' if verdict['consistent'] else 'suspect'
+            log.verification_note = verdict['note']
+        log.save(update_fields=['verification', 'verification_note'])
 
     def _call_groq_json(self, prompt, max_tokens=300):
         """Groq 경량 모델 호출 후 JSON 파싱 (코드펜스 제거 포함)"""
@@ -310,7 +381,10 @@ class LearnlogService:
 
     DEFAULT_INSTRUCTIONS = (
         "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함. "
-        "코드 예시는 질문에 언어/스택 지정이 없으면 Python(백엔드 맥락은 Django) 기준으로."
+        "코드 예시는 질문에 언어/스택 지정이 없으면 Python(백엔드 맥락은 Django) 기준으로. "
+        # grounding: 환각이 잘 생기는 '그럴듯한 디테일 지어내기' 차단
+        "구체적인 버전·수치·설정 이름·API 이름은 참고 자료나 과거 기록에 근거가 있을 때만 단정하고, "
+        "근거가 없으면 불확실하다고 명시할 것."
     )
 
     @staticmethod
@@ -375,9 +449,11 @@ class LearnlogService:
             print(f"AI 답변 생성 오류: {e}")
             return "답변 생성 중 오류가 발생했습니다."
 
-    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
+    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500, meta=None):
         """
-        Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield
+        Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield.
+        meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
+        ('length'면 max_tokens 잘림 — 호출자가 잘림 플래그에 사용).
         """
         context = "\n".join([
             f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
@@ -404,7 +480,10 @@ class LearnlogService:
                 max_tokens=2000
             )
             for event in stream:
-                chunk = event.data.choices[0].delta.content
+                choice = event.data.choices[0]
+                if meta is not None and choice.finish_reason:
+                    meta['finish_reason'] = str(choice.finish_reason)
+                chunk = choice.delta.content
                 if chunk:
                     yield chunk
         except Exception as e:

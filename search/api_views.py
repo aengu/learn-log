@@ -1,4 +1,5 @@
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from django.shortcuts import render
 from django.views import View
@@ -107,6 +108,18 @@ class QuerySSEView(View):
             ai_answer = state.get('answer', '')
             search_results = state.get('search_results') or {'results': []}
 
+            # 라우터 판단 결과 → 답변 출처 (배지 표시 + 비동기 검증 대상 판단)
+            used_logs = state.get('use_logs', True) and bool(state.get('retrieved_logs'))
+            used_web = state.get('need_web', True)
+            if used_logs and used_web:
+                answer_source = 'both'
+            elif used_logs:
+                answer_source = 'logs'
+            elif used_web:
+                answer_source = 'web'
+            else:
+                answer_source = 'none'
+
             yield self._sse_event('progress', {'step': 5, 'total': total, 'message': '태그 추출 + 마크다운 변환 중...'})
             with ThreadPoolExecutor(max_workers=2) as executor:
                 tags_future = executor.submit(service.extract_tags, query, ai_answer)
@@ -116,7 +129,25 @@ class QuerySSEView(View):
 
             yield self._sse_event('progress', {'step': 6, 'total': total, 'message': '저장 중...'})
 
-            log = service.save_learning_log(query, ai_answer, markdown, search_results, tag_names, parent=parent)
+            log = service.save_learning_log(
+                query, ai_answer, markdown, search_results, tag_names, parent=parent,
+                answer_source=answer_source,
+                is_truncated=state.get('truncated', False),
+            )
+
+            # 모순 검증은 비동기 — 환각의 피해는 읽는 순간이 아니라 저장된 기록이 복습으로
+            # 암기되는 것이라, 응답을 막지 않고 저장 후 검사해서 배지로만 표시한다
+            if answer_source != 'none':
+                threading.Thread(
+                    target=self._verify_in_background,
+                    args=(
+                        log.pk,
+                        state.get('retrieved_logs') if used_logs else None,
+                        500 if used_web else 1500,  # 생성에 쓴 절삭 길이 그대로
+                        search_results if used_web else None,
+                    ),
+                    daemon=True,
+                ).start()
 
             result_html = render_to_string('search/partials/result.html', {
                 'log': log,
@@ -127,6 +158,20 @@ class QuerySSEView(View):
         except Exception as e:
             error_html = render_to_string('search/partials/error.html', {'error_message': str(e)})
             yield self._sse_event('error', {'html': error_html})
+
+    @staticmethod
+    def _verify_in_background(log_pk, retrieved_logs, retrieved_limit, search_results):
+        """저장 후 비동기 모순 검증 — 스레드별 DB 커넥션을 마지막에 정리한다"""
+        from django.db import connection
+        try:
+            log = LearningLog.objects.filter(pk=log_pk).first()
+            if log is None:
+                return
+            LearnlogService().verify_log(log, retrieved_logs, retrieved_limit, search_results)
+        except Exception as e:
+            print(f"비동기 검증 스레드 오류: {e}")
+        finally:
+            connection.close()
 
     def _error_stream(self, message):
         error_html = render_to_string('search/partials/error.html', {'error_message': message})

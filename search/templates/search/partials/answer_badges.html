@@ -1,0 +1,28 @@
+{% comment %}
+답변 출처·검증 상태 배지 (결과 카드 + 상세 모달 공용)
+- answer_source가 빈 값(기능 도입 전 로그)이면 아무것도 표시하지 않는다
+- verification: pending은 표시 생략 (비동기 검증이 끝나면 다음 조회부터 보임)
+{% endcomment %}
+{% if log.answer_source %}
+<div class="flex flex-wrap gap-1.5 mt-2">
+    {% if log.answer_source == 'both' %}
+    <span class="badge badge-sm badge-ghost gap-1">🌐📚 웹 문서 + 내 기록</span>
+    {% elif log.answer_source == 'logs' %}
+    <span class="badge badge-sm badge-info badge-outline gap-1">📚 내 기록 기반</span>
+    {% elif log.answer_source == 'web' %}
+    <span class="badge badge-sm badge-ghost gap-1">🌐 웹 문서 기반</span>
+    {% else %}
+    <span class="badge badge-sm badge-ghost gap-1">모델 지식만</span>
+    {% endif %}
+
+    {% if log.is_truncated %}
+    <span class="badge badge-sm badge-warning gap-1" title="답변이 길이 제한에 걸려 끝부분이 잘렸을 수 있어요">⚠️ 답변 잘림</span>
+    {% endif %}
+
+    {% if log.verification == 'passed' %}
+    <span class="badge badge-sm badge-success badge-outline gap-1" title="답변이 생성 시 참고한 자료와 어긋나지 않는지 확인됨">✅ 검증됨</span>
+    {% elif log.verification == 'suspect' %}
+    <span class="badge badge-sm badge-warning gap-1" title="{{ log.verification_note|default:'생성 시 참고한 자료와 어긋나는 내용이 있을 수 있어요' }}">⚠️ 불일치 의심</span>
+    {% endif %}
+</div>
+{% endif %}

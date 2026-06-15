@@ -95,6 +95,40 @@ class LearningLog(models.Model):
         blank=True,
         verbose_name="임베딩"
     )
+
+    ANSWER_SOURCE_CHOICES = [
+        ('both', '내 기록 + 웹 문서'),
+        ('logs', '내 기록 기반'),
+        ('web', '웹 문서 기반'),
+        ('none', '모델 지식만'),
+    ]
+    VERIFICATION_CHOICES = [
+        ('pending', '검증 대기'),
+        ('passed', '컨텍스트 일치'),
+        ('suspect', '컨텍스트 불일치 의심'),
+    ]
+    answer_source = models.CharField(
+        max_length=10,
+        choices=ANSWER_SOURCE_CHOICES,
+        blank=True,
+        default='',  # 기능 도입 전 로그는 빈 값 (배지 미표시)
+        verbose_name="답변 출처"
+    )
+    is_truncated = models.BooleanField(
+        default=False,
+        verbose_name="답변 잘림(max_tokens)"
+    )
+    verification = models.CharField(
+        max_length=10,
+        choices=VERIFICATION_CHOICES,
+        blank=True,
+        default='',  # 빈 값 = 미검증 (컨텍스트 없음 또는 검증 실패)
+        verbose_name="검증 상태"
+    )
+    verification_note = models.TextField(
+        blank=True,
+        verbose_name="검증 메모"
+    )
     view_count = models.PositiveIntegerField(
         default=0,
         verbose_name="조회수"

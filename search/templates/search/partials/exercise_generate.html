@@ -1,4 +1,10 @@
 <p class="font-semibold text-sm mb-3">연습문제 만들기</p>
+{% if log.verification == 'suspect' %}
+<div class="alert alert-warning py-2 px-3 mb-3 text-xs">
+    ⚠️ 이 답변은 참고 자료와 어긋나는 내용이 있을 수 있어요. 틀린 내용으로 복습하지 않도록, 내용을 확인한 뒤 문제를 만드는 걸 추천해요.
+    {% if log.verification_note %}<br>의심 지점: {{ log.verification_note }}{% endif %}
+</div>
+{% endif %}
 <div class="flex flex-wrap gap-2">
     {% for type_value, type_label in exercise_types %}
     <form hx-post="{% url 'search:exercise_generate' log.id %}"

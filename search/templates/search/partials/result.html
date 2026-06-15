@@ -13,6 +13,7 @@
                 <p class="text-sm text-base-content/60 mt-1">
                     {{ log.created_at|date:"Y년 n월 j일 H:i" }}
                 </p>
+                {% include 'search/partials/answer_badges.html' %}
             </div>
             <button
                 class="btn btn-sm btn-outline"

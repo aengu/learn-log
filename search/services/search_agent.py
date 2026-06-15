@@ -28,6 +28,7 @@ class SearchState(TypedDict, total=False):
     route_reason: str
     search_results: dict        # Tavily 결과
     answer: str
+    truncated: bool             # max_tokens 잘림 (finish_reason == 'length')
 
 
 def build_search_agent(service):
@@ -57,6 +58,7 @@ def build_search_agent(service):
         retrieved = state['retrieved_logs'] if state.get('use_logs', True) else None
         # 웹 생략 경로는 Tavily 블록이 빠진 토큰 예산을 로그 컨텍스트에 재배분 (0611 벤치마크)
         retrieved_limit = 500 if state.get('need_web', True) else 1500
+        meta = {}
         chunks = []
         for chunk in service.generate_answer_stream(
             state['query'],
@@ -65,10 +67,14 @@ def build_search_agent(service):
             parent=state.get('parent'),
             retrieved_logs=retrieved,
             retrieved_limit=retrieved_limit,
+            meta=meta,
         ):
             chunks.append(chunk)
             writer({'token': chunk})
-        return {'answer': ''.join(chunks).strip()}
+        return {
+            'answer': ''.join(chunks).strip(),
+            'truncated': meta.get('finish_reason') == 'length',
+        }
 
     def after_router(state):
         return 'web_search' if state.get('need_web', True) else 'generate'
