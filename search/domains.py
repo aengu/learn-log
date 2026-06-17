@@ -111,6 +111,7 @@ TECH_DOCS_MAP = {
     '깃랩': ['docs.gitlab.com'],
 
     # 기타
+    'mcp': ['modelcontextprotocol.io'],
     'graphql': ['graphql.org/learn'],
     '그래프큐엘': ['graphql.org/learn'],
     'linux': ['man7.org', 'kernel.org/doc'],

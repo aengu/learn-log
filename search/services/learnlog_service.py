@@ -298,20 +298,19 @@ class LearnlogService:
         log.save(update_fields=['verification', 'verification_note'])
 
     def _call_groq_json(self, prompt, max_tokens=300):
-        """Groq 경량 모델 호출 후 JSON 파싱 (코드펜스 제거 포함)"""
+        """
+        Groq 경량 모델 호출 후 JSON 파싱.
+        response_format=json_object로 모델 레벨에서 valid JSON을 강제한다
+        (코드펜스·잡설 방지). 프롬프트에 'JSON' 단어가 있어야 동작.
+        """
         response = self.groq_client.chat.completions.create(
             model=self.LIGHT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=max_tokens,
+            response_format={"type": "json_object"},
         )
-        raw = response.choices[0].message.content.strip()
-        if raw.startswith('```'):
-            parts = raw.split('```')
-            raw = parts[1] if len(parts) > 1 else raw
-            if raw.startswith('json'):
-                raw = raw[4:]
-        return json.loads(raw.strip())
+        return json.loads(response.choices[0].message.content)
 
     def search_official_docs(self, query, parent=None):
         """
