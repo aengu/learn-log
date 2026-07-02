@@ -17,6 +17,8 @@ from typing import Optional, TypedDict
 from langgraph.config import get_stream_writer
 from langgraph.graph import StateGraph, START, END
 
+from .learnlog_service import RETRIEVED_LIMIT_NO_WEB, RETRIEVED_LIMIT_WEB
+
 
 class SearchState(TypedDict, total=False):
     query: str
@@ -28,6 +30,7 @@ class SearchState(TypedDict, total=False):
     route_reason: str
     search_results: dict        # Tavily 결과
     answer: str
+    answer_source: str          # 답변 컨텍스트 출처: both/logs/web/none
     truncated: bool             # max_tokens 잘림 (finish_reason == 'length')
 
 
@@ -55,9 +58,21 @@ def build_search_agent(service):
     def generate(state):
         writer = get_stream_writer()
 
-        retrieved = state['retrieved_logs'] if state.get('use_logs', True) else None
+        # 라우터 판단 → 답변 출처 (배지 표시 + 비동기 검증 대상 판단에 사용)
+        used_logs = state.get('use_logs', True) and bool(state.get('retrieved_logs'))
+        used_web = state.get('need_web', True)
+        if used_logs and used_web:
+            answer_source = 'both'
+        elif used_logs:
+            answer_source = 'logs'
+        elif used_web:
+            answer_source = 'web'
+        else:
+            answer_source = 'none'
+
+        retrieved = state['retrieved_logs'] if used_logs else None
         # 웹 생략 경로는 Tavily 블록이 빠진 토큰 예산을 로그 컨텍스트에 재배분 (0611 벤치마크)
-        retrieved_limit = 500 if state.get('need_web', True) else 1500
+        retrieved_limit = RETRIEVED_LIMIT_WEB if used_web else RETRIEVED_LIMIT_NO_WEB
         meta = {}
         chunks = []
         for chunk in service.generate_answer_stream(
@@ -73,6 +88,7 @@ def build_search_agent(service):
             writer({'token': chunk})
         return {
             'answer': ''.join(chunks).strip(),
+            'answer_source': answer_source,
             'truncated': meta.get('finish_reason') == 'length',
         }
 

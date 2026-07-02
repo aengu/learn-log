@@ -14,6 +14,7 @@ from rest_framework import status
 
 from .models import LearningLog, Exercise, ExerciseAttempt, DailyJournal
 from .services import LearnlogService, ExerciseService, JournalService, build_search_agent
+from .services.learnlog_service import RETRIEVED_LIMIT_NO_WEB, RETRIEVED_LIMIT_WEB
 from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
 
 EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
@@ -107,18 +108,7 @@ class QuerySSEView(View):
 
             ai_answer = state.get('answer', '')
             search_results = state.get('search_results') or {'results': []}
-
-            # 라우터 판단 결과 → 답변 출처 (배지 표시 + 비동기 검증 대상 판단)
-            used_logs = state.get('use_logs', True) and bool(state.get('retrieved_logs'))
-            used_web = state.get('need_web', True)
-            if used_logs and used_web:
-                answer_source = 'both'
-            elif used_logs:
-                answer_source = 'logs'
-            elif used_web:
-                answer_source = 'web'
-            else:
-                answer_source = 'none'
+            answer_source = state.get('answer_source', 'none')  # generate 노드가 라우터 판단으로 산출
 
             yield self._sse_event('progress', {'step': 5, 'total': total, 'message': '태그 추출 + 마크다운 변환 중...'})
             with ThreadPoolExecutor(max_workers=2) as executor:
@@ -138,12 +128,14 @@ class QuerySSEView(View):
             # 모순 검증은 비동기 — 환각의 피해는 읽는 순간이 아니라 저장된 기록이 복습으로
             # 암기되는 것이라, 응답을 막지 않고 저장 후 검사해서 배지로만 표시한다
             if answer_source != 'none':
+                used_web = answer_source in ('both', 'web')
                 threading.Thread(
                     target=self._verify_in_background,
                     args=(
                         log.pk,
-                        state.get('retrieved_logs') if used_logs else None,
-                        500 if used_web else 1500,  # 생성에 쓴 절삭 길이 그대로
+                        state.get('retrieved_logs') if answer_source in ('both', 'logs') else None,
+                        # 생성에 쓴 절삭 길이 그대로
+                        RETRIEVED_LIMIT_WEB if used_web else RETRIEVED_LIMIT_NO_WEB,
                         search_results if used_web else None,
                     ),
                     daemon=True,

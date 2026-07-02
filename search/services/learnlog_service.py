@@ -13,6 +13,11 @@ from django.utils.text import slugify
 from ..models import LearningLog, Tag, Reference
 from ..domains import get_domains_for_query, is_official_doc
 
+# 프롬프트의 과거 로그 절삭 예산 (0611 벤치마크).
+# 생성(search_agent)과 비동기 검증(api_views)이 반드시 같은 값을 써야 한다.
+RETRIEVED_LIMIT_WEB = 500      # 웹 검색 포함 경로
+RETRIEVED_LIMIT_NO_WEB = 1500  # 웹 생략 경로 — Tavily 블록이 빠진 예산 재배분
+
 
 class LearnlogService:
     """
@@ -242,10 +247,7 @@ class LearnlogService:
         판정 실패는 예외로 올린다 (호출자가 미검증 처리).
         """
         retrieved = self._build_retrieved_context(retrieved_logs or [], limit=retrieved_limit)
-        web = "\n".join(
-            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
-            for r in (search_results or {}).get('results', [])[:2]
-        )
+        web = self._build_web_context(search_results)
         context = f"{retrieved}{web}".strip()
         if not context:
             return None
@@ -387,6 +389,14 @@ class LearnlogService:
     )
 
     @staticmethod
+    def _build_web_context(search_results):
+        """웹 검색 컨텍스트 블록. Tavily 상위 2건을 [url] 내용 200자로 절삭"""
+        return "\n".join(
+            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
+            for r in (search_results or {}).get('results', [])[:2]
+        )
+
+    @staticmethod
     def _build_retrieved_context(retrieved_logs, limit=500):
         """
         RAG: 하이브리드 검색으로 찾은 과거 로그 블록. 로그당 답변 limit자 절삭
@@ -415,26 +425,26 @@ class LearnlogService:
             f"[이전 답변] {parent.ai_response[:500]}\n\n"
         )
 
-    def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
-        """
-        Mistral API로 AI 답변 생성
-        """
-        context = "\n".join([
-            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
-            for r in search_results.get('results', [])[:2]
-        ])
-
+    def _build_answer_prompt(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
+        """답변 생성 프롬프트 조립 — 동기/스트리밍 경로가 반드시 같은 프롬프트를 쓴다"""
+        context = self._build_web_context(search_results)
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
         retrieved = self._build_retrieved_context(retrieved_logs, limit=retrieved_limit)
 
         # 개행 포함 블록을 f-string에 넣으면 dedent가 무효라 직접 조립
-        prompt = (
+        return (
             "개발 질문에 한국어로 답변하세요.\n\n"
             f"{retrieved}{conversation}질문: {query}\n\n"
             f"참고:\n{context if context else '없음'}\n\n"
             f"{instructions}"
         )
+
+    def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
+        """
+        Mistral API로 AI 답변 생성
+        """
+        prompt = self._build_answer_prompt(query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit)
 
         try:
             response = self.mistral_client.chat.complete(
@@ -454,22 +464,7 @@ class LearnlogService:
         meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
         ('length'면 max_tokens 잘림 — 호출자가 잘림 플래그에 사용).
         """
-        context = "\n".join([
-            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
-            for r in search_results.get('results', [])[:2]
-        ])
-
-        instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
-        conversation = self._build_conversation_context(parent)
-        retrieved = self._build_retrieved_context(retrieved_logs, limit=retrieved_limit)
-
-        # 개행 포함 블록을 f-string에 넣으면 dedent가 무효라 직접 조립
-        prompt = (
-            "개발 질문에 한국어로 답변하세요.\n\n"
-            f"{retrieved}{conversation}질문: {query}\n\n"
-            f"참고:\n{context if context else '없음'}\n\n"
-            f"{instructions}"
-        )
+        prompt = self._build_answer_prompt(query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit)
 
         try:
             stream = self.mistral_client.chat.stream(
