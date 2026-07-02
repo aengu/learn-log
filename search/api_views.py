@@ -15,7 +15,7 @@ from rest_framework import status
 from .models import LearningLog, Exercise, ExerciseAttempt, DailyJournal
 from .services import LearnlogService, ExerciseService, JournalService, build_search_agent
 from .services.learnlog_service import RETRIEVED_LIMIT_NO_WEB, RETRIEVED_LIMIT_WEB
-from .serializers import LearningLogDetailSerializer, LearningLogUpdateSerializer, QueryInputSerializer
+from .serializers import LearningLogUpdateSerializer
 
 EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
 
@@ -23,29 +23,6 @@ EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
 # ============================================
 # 학습기록 서치 API
 # ============================================
-
-class QueryHTMXView(View):
-    """HTMX용 질문 처리 - HTML 조각 반환"""
-    def post(self, request):
-        query = request.POST.get('query', '').strip()
-
-        if len(query) < 5:
-            return render(request, 'search/partials/error.html', {
-                'error_message': '질문은 최소 5자 이상이어야 합니다.'
-            })
-
-        try:
-            service = LearnlogService()
-            log = service.process_query(query)
-            return render(request, 'search/partials/result.html', {
-                'log': log,
-                'exercise_types': EXERCISE_TYPES,
-            })
-        except Exception as e:
-            return render(request, 'search/partials/error.html', {
-                'error_message': str(e)
-            })
-
 
 @method_decorator(csrf_exempt, name='dispatch')
 class QuerySSEView(View):
@@ -171,33 +148,6 @@ class QuerySSEView(View):
 
     def _sse_event(self, event_type, data):
         return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-class QueryAPIView(APIView):
-    """REST API용 질문 처리 - JSON 반환"""
-    def post(self, request):
-        serializer = QueryInputSerializer(data=request.data)
-
-        if not serializer.is_valid():
-            return Response({'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        query = serializer.validated_data['query']
-
-        try:
-            service = LearnlogService()
-            log = service.process_query(query)
-            result_serializer = LearningLogDetailSerializer(log)
-
-            return Response({
-                'success': True,
-                'data': result_serializer.data
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # ============================================

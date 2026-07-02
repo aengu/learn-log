@@ -1,6 +1,5 @@
 import json
 import textwrap
-from concurrent.futures import ThreadPoolExecutor
 
 from groq import Groq
 from mistralai.client import Mistral
@@ -39,30 +38,6 @@ class LearnlogService:
         )
         self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
         self.tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
-
-    def process_query(self, user_query):
-        """
-        메인 처리 로직 (HTMX용 - 동기 처리)
-        SSE 스트리밍은 QuerySSEView에서 각 메서드를 직접 호출
-        """
-        # 1. 과거 학습 기록 검색 (RAG retrieval)
-        retrieved_logs = self.retrieve_similar_logs(user_query)
-
-        # 2. 웹 검색
-        search_results = self.search_official_docs(user_query)
-
-        # 3. AI 답변 생성
-        ai_answer = self.generate_answer(user_query, search_results, retrieved_logs=retrieved_logs)
-
-        # 4. 태그 추출 + 마크다운 변환 (병렬)
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            tags_future = executor.submit(self.extract_tags, user_query, ai_answer)
-            md_future = executor.submit(self.convert_to_markdown, user_query, ai_answer, search_results)
-            tag_names = tags_future.result()
-            markdown = md_future.result()
-
-        # 5. DB 저장
-        return self.save_learning_log(user_query, ai_answer, markdown, search_results, tag_names)
 
     def save_learning_log(self, query, ai_answer, markdown, search_results, tag_names, parent=None, answer_source='', is_truncated=False):
         """
@@ -426,7 +401,7 @@ class LearnlogService:
         )
 
     def _build_answer_prompt(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
-        """답변 생성 프롬프트 조립 — 동기/스트리밍 경로가 반드시 같은 프롬프트를 쓴다"""
+        """답변 생성 프롬프트 조립"""
         context = self._build_web_context(search_results)
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
@@ -439,24 +414,6 @@ class LearnlogService:
             f"참고:\n{context if context else '없음'}\n\n"
             f"{instructions}"
         )
-
-    def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
-        """
-        Mistral API로 AI 답변 생성
-        """
-        prompt = self._build_answer_prompt(query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit)
-
-        try:
-            response = self.mistral_client.chat.complete(
-                model=self.ANSWER_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=2000
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"AI 답변 생성 오류: {e}")
-            return "답변 생성 중 오류가 발생했습니다."
 
     def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500, meta=None):
         """

@@ -1,9 +1,7 @@
 from django.urls import path
 from .views import MainPageView, LogListView, ExerciseListView, ExerciseDetailView, StatsView
 from .api_views import (
-    QueryHTMXView,
     QuerySSEView,
-    QueryAPIView,
     LogDetailAPIView,
     ExerciseGenerateAPIView,
     ExerciseAttemptAPIView,
@@ -23,8 +21,6 @@ urlpatterns = [
     path('stats/', StatsView.as_view(), name='stats'),
 
     # Query API
-    path('api/query/', QueryHTMXView.as_view(), name='query_api_html'),
-    path('api/query/json/', QueryAPIView.as_view(), name='query_api_json'),
     path('api/query/stream/', QuerySSEView.as_view(), name='query_api_stream'),
 
     # Log API
