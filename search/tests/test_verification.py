@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 import pytest
 from django.urls import reverse
 
+from search.models import LearningLog
 from search.services import LearnlogService
 from search.services.search_agent import build_search_agent
 from search.tests.factories import LearningLogFactory
@@ -107,6 +108,27 @@ class TestTruncatedFlag:
         agent = build_search_agent(self._make_service('stop'))
         result = agent.invoke({'query': '테스트 질문입니다', 'custom_instructions': None, 'parent': None})
         assert result['truncated'] is False
+
+
+class TestStreamFailure:
+    """스트리밍 실패 시 에러 문구가 정상 답변처럼 저장되면 안 된다 (복습 대상이 됨)"""
+
+    def test_스트리밍_실패는_에러문구_yield_대신_예외전파(self):
+        service = _service_without_clients()
+        service.mistral_client = Mock()
+        service.mistral_client.chat.stream.side_effect = RuntimeError('LLM 장애')
+        with pytest.raises(RuntimeError):
+            list(service.generate_answer_stream('질문입니다', {'results': []}))
+
+    @pytest.mark.django_db
+    def test_스트리밍_실패시_저장없이_에러이벤트(self, client):
+        with patch('search.api_views.LearnlogService'), \
+             patch('search.api_views.build_search_agent') as mock_build:
+            mock_build.return_value.stream.side_effect = RuntimeError('LLM 장애')
+            resp = client.post(reverse('search:query_api_stream'), {'query': '테스트 질문입니다'})
+            body = b''.join(resp.streaming_content).decode()
+        assert 'event: error' in body
+        assert LearningLog.objects.count() == 0
 
 
 @pytest.mark.django_db

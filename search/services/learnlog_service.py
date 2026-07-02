@@ -420,6 +420,8 @@ class LearnlogService:
         Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield.
         meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
         ('length'면 max_tokens 잘림 — 호출자가 잘림 플래그에 사용).
+        실패는 예외로 전파한다 — 에러 문구를 토큰처럼 내보내면
+        SSE 뷰가 정상 답변으로 알고 저장해버린다 (복습 대상이 됨).
         """
         prompt = self._build_answer_prompt(query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit)
 
@@ -439,7 +441,7 @@ class LearnlogService:
                     yield chunk
         except Exception as e:
             print(f"AI 답변 스트리밍 오류: {e}")
-            yield "답변 생성 중 오류가 발생했습니다."
+            raise
 
     def extract_tags(self, query, ai_response):
         """
