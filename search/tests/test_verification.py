@@ -26,29 +26,47 @@ class TestVerifyLog:
     def _make_log(self):
         return LearningLogFactory(verification='pending')
 
-    def test_모순_없으면_passed(self):
+    def test_지지되면_passed(self):
         log = self._make_log()
         service = _service_without_clients()
-        with patch.object(LearnlogService, '_call_groq_json', return_value={'consistent': True, 'note': ''}):
+        with patch.object(LearnlogService, '_call_groq_json', return_value={'verdict': 'supported', 'note': ''}):
             service.verify_log(log, search_results={'results': [{'url': 'u', 'content': '내용'}]})
         log.refresh_from_db()
         assert log.verification == 'passed'
         assert log.verification_note == ''
 
-    def test_모순_있으면_suspect_와_메모(self):
+    def test_모순이면_suspect_와_메모(self):
         log = self._make_log()
         service = _service_without_clients()
         with patch.object(LearnlogService, '_call_groq_json',
-                          return_value={'consistent': False, 'note': '버전 표기가 어긋남'}):
+                          return_value={'verdict': 'contradicted', 'note': '버전 표기가 어긋남'}):
             service.verify_log(log, search_results={'results': [{'url': 'u', 'content': '내용'}]})
         log.refresh_from_db()
         assert log.verification == 'suspect'
         assert log.verification_note == '버전 표기가 어긋남'
 
+    def test_근거없으면_unsupported_와_메모(self):
+        log = self._make_log()
+        service = _service_without_clients()
+        with patch.object(LearnlogService, '_call_groq_json',
+                          return_value={'verdict': 'no_evidence', 'note': '컨텍스트가 다른 주제'}):
+            service.verify_log(log, search_results={'results': [{'url': 'u', 'content': '내용'}]})
+        log.refresh_from_db()
+        assert log.verification == 'unsupported'
+        assert log.verification_note == '컨텍스트가 다른 주제'
+
     def test_judge_실패시_미검증으로(self):
         log = self._make_log()
         service = _service_without_clients()
         with patch.object(LearnlogService, '_call_groq_json', side_effect=ValueError('파싱 실패')):
+            service.verify_log(log, search_results={'results': [{'url': 'u', 'content': '내용'}]})
+        log.refresh_from_db()
+        assert log.verification == ''
+
+    def test_알수없는_verdict면_미검증으로(self):
+        log = self._make_log()
+        service = _service_without_clients()
+        with patch.object(LearnlogService, '_call_groq_json', return_value={'verdict': 'maybe', 'note': ''}):
             service.verify_log(log, search_results={'results': [{'url': 'u', 'content': '내용'}]})
         log.refresh_from_db()
         assert log.verification == ''
@@ -119,6 +137,15 @@ class TestBadgeRendering:
         content = resp.content.decode()
         assert '내 기록 기반' in content
         assert '불일치 의심' in content
+        assert '틀린 내용으로 복습하지 않도록' in content
+
+    def test_근거없음_로그는_배지와_연습문제_경고_표시(self, client):
+        log = LearningLogFactory(
+            answer_source='web', verification='unsupported', verification_note='근거 문서 없음',
+        )
+        resp = client.get(reverse('search:log_detail_api', args=[log.pk]))
+        content = resp.content.decode()
+        assert '근거 확인 필요' in content
         assert '틀린 내용으로 복습하지 않도록' in content
 
     def test_잘림_배지(self, client):

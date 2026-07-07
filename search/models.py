@@ -106,6 +106,7 @@ class LearningLog(models.Model):
         ('pending', '검증 대기'),
         ('passed', '컨텍스트 일치'),
         ('suspect', '컨텍스트 불일치 의심'),
+        ('unsupported', '컨텍스트에 근거 없음'),
     ]
     answer_source = models.CharField(
         max_length=10,
@@ -119,7 +120,7 @@ class LearningLog(models.Model):
         verbose_name="답변 잘림(max_tokens)"
     )
     verification = models.CharField(
-        max_length=10,
+        max_length=12,
         choices=VERIFICATION_CHOICES,
         blank=True,
         default='',  # 빈 값 = 미검증 (컨텍스트 없음 또는 검증 실패)

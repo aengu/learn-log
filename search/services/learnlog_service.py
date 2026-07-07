@@ -26,6 +26,15 @@ class LearnlogService:
     ANSWER_MODEL = "mistral-large-latest"
     LIGHT_MODEL = "llama-3.3-70b-versatile"
     EMBED_MODEL = "mistral-embed"  # 1024차원
+    ANSWER_TEMPERATURE = 0.3  # 사실 위주 답변 — 그럴듯한 디테일 지어내기(환각) 억제
+    WEB_CONTEXT_RESULTS = 3   # 프롬프트에 넣는 웹 검색 발췌 건수
+
+    # Judge verdict → LearningLog.verification 값 (verify_log·verify_logs 커맨드 공용)
+    VERDICT_TO_VERIFICATION = {
+        'supported': 'passed',
+        'contradicted': 'suspect',
+        'no_evidence': 'unsupported',
+    }
 
     def __init__(self):
         self.mistral_client = Mistral(
@@ -236,22 +245,31 @@ class LearnlogService:
 
     def check_consistency(self, ai_response, retrieved_logs=None, retrieved_limit=500, search_results=None):
         """
-        답변이 제공된 컨텍스트와 모순되는지 LLM Judge로 판정만 한다 (저장 없음).
+        답변이 제공된 컨텍스트에서 지지되는지 LLM Judge로 판정만 한다 (저장 없음).
         Judge는 Groq(생성 모델 Mistral과 다른 계열)라 교차 검증 효과가 있다.
-        반환: {'consistent': bool, 'note': str} — 컨텍스트가 없으면 None.
-        판정 실패는 예외로 올린다 (호출자가 미검증 처리).
+
+        3분법 verdict — 이진(consistent) 스키마에서 Judge가 무관함(irrelevant)을
+        모순(contradiction)으로 오판하던 패턴(0611 Claude 교차검증: 의심 17건 중 16건)을
+        프롬프트 지시가 아니라 출력 스키마 레벨에서 차단한다:
+          supported     답변의 핵심 주장이 컨텍스트와 부합
+          no_evidence   컨텍스트가 딴 주제거나 대조할 근거가 없음 (무관은 모순이 아님)
+          contradicted  컨텍스트와 명백히 어긋남
+        반환: {'verdict': str, 'note': str} — 컨텍스트가 없으면 None.
+        판정 실패·알 수 없는 verdict는 예외로 올린다 (호출자가 미검증 처리).
         """
         retrieved = self._build_retrieved_context(retrieved_logs or [], limit=retrieved_limit)
+        # 생성 프롬프트와 동일한 웹 발췌 규칙 — Judge가 생성이 본 것과 같은 컨텍스트를 보게
+        web_chars = 400 if retrieved_logs else 800
         web = "\n".join(
-            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
-            for r in (search_results or {}).get('results', [])[:2]
+            f"[{r.get('url', '')}] {r.get('content', '')[:web_chars]}"
+            for r in (search_results or {}).get('results', [])[:self.WEB_CONTEXT_RESULTS]
         )
         context = f"{retrieved}{web}".strip()
         if not context:
             return None
 
         prompt = textwrap.dedent(f"""
-            AI 답변이 생성에 사용된 참고 컨텍스트와 모순되는지 검사하세요.
+            AI 답변이 생성에 사용된 참고 컨텍스트에서 지지되는지 검사하세요.
 
             참고 컨텍스트:
             {context}
@@ -261,19 +279,24 @@ class LearnlogService:
 
             JSON으로만 응답하세요 (```없이):
             {{
-              "consistent": true/false,
-              "note": "모순이 있으면 어떤 주장이 어긋나는지 한 문장 (없으면 빈 문자열)"
+              "verdict": "supported" 또는 "no_evidence" 또는 "contradicted",
+              "note": "supported가 아니면 판단 근거 한 문장 (supported면 빈 문자열)"
             }}
 
             판단 기준:
-            - 답변의 주장(수치, 동작 설명, API 사용법)이 컨텍스트 내용과 명백히 어긋나면 consistent=false
-            - 컨텍스트에 없는 내용을 답변이 추가로 다루는 것은 모순이 아님
+            - contradicted: 답변의 주장(수치, 동작 설명, API 사용법)이 컨텍스트 내용과 명백히 어긋남
+            - no_evidence: 컨텍스트가 답변과 다른 주제를 다루거나, 답변의 핵심 주장을 대조할
+              근거가 컨텍스트에 없음. 무관함은 모순이 아닙니다 — 대조할 거리가 없으면 반드시 no_evidence.
+            - supported: 답변의 핵심 주장이 컨텍스트 내용과 부합함
+            - 컨텍스트에 없는 내용을 답변이 추가로 다루는 것 자체는 contradicted가 아님
         """).strip()
         result = self._call_groq_json(prompt, max_tokens=200)
-        consistent = bool(result.get('consistent', True))
+        verdict = result.get('verdict')
+        if verdict not in self.VERDICT_TO_VERIFICATION:
+            raise ValueError(f"알 수 없는 verdict: {verdict!r}")
         return {
-            'consistent': consistent,
-            'note': '' if consistent else result.get('note', ''),
+            'verdict': verdict,
+            'note': '' if verdict == 'supported' else result.get('note', ''),
         }
 
     def verify_log(self, log, retrieved_logs=None, retrieved_limit=500, search_results=None):
@@ -293,7 +316,7 @@ class LearnlogService:
             log.verification = ''
             log.verification_note = ''
         else:
-            log.verification = 'passed' if verdict['consistent'] else 'suspect'
+            log.verification = self.VERDICT_TO_VERIFICATION[verdict['verdict']]
             log.verification_note = verdict['note']
         log.save(update_fields=['verification', 'verification_note'])
 
@@ -419,9 +442,11 @@ class LearnlogService:
         """
         Mistral API로 AI 답변 생성
         """
+        # 로그 블록이 빠지면 그 토큰 예산을 웹 발췌에 재배분 (search_agent의 retrieved_limit과 대칭)
+        web_chars = 400 if retrieved_logs else 800
         context = "\n".join([
-            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
-            for r in search_results.get('results', [])[:2]
+            f"[{r.get('url', '')}] {r.get('content', '')[:web_chars]}"
+            for r in search_results.get('results', [])[:self.WEB_CONTEXT_RESULTS]
         ])
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
@@ -440,7 +465,7 @@ class LearnlogService:
             response = self.mistral_client.chat.complete(
                 model=self.ANSWER_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=self.ANSWER_TEMPERATURE,
                 max_tokens=2000
             )
             return response.choices[0].message.content.strip()
@@ -454,9 +479,11 @@ class LearnlogService:
         meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
         ('length'면 max_tokens 잘림 — 호출자가 잘림 플래그에 사용).
         """
+        # 로그 블록이 빠지면 그 토큰 예산을 웹 발췌에 재배분 (search_agent의 retrieved_limit과 대칭)
+        web_chars = 400 if retrieved_logs else 800
         context = "\n".join([
-            f"[{r.get('url', '')}] {r.get('content', '')[:200]}"
-            for r in search_results.get('results', [])[:2]
+            f"[{r.get('url', '')}] {r.get('content', '')[:web_chars]}"
+            for r in search_results.get('results', [])[:self.WEB_CONTEXT_RESULTS]
         ])
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
@@ -475,7 +502,7 @@ class LearnlogService:
             stream = self.mistral_client.chat.stream(
                 model=self.ANSWER_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=self.ANSWER_TEMPERATURE,
                 max_tokens=2000
             )
             for event in stream:

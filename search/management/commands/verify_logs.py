@@ -39,8 +39,8 @@ class Command(BaseCommand):
         if options['limit']:
             logs = logs[:options['limit']]
 
-        passed = suspect = skipped = failed = 0
-        suspect_lines = []
+        passed = suspect = unsupported = skipped = failed = 0
+        flagged_lines = []
 
         for log in logs:
             refs = list(log.references.all())
@@ -60,25 +60,31 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            if verdict['consistent']:
+            if verdict['verdict'] == 'supported':
                 passed += 1
                 self.stdout.write(f"  ✅ #{log.pk}: {log.query[:45]}")
-            else:
+            elif verdict['verdict'] == 'contradicted':
                 suspect += 1
                 line = f"  ⚠️ #{log.pk}: {log.query[:45]} — {verdict['note']}"
-                suspect_lines.append(line)
+                flagged_lines.append(line)
+                self.stdout.write(self.style.WARNING(line))
+            else:  # no_evidence
+                unsupported += 1
+                line = f"  🔍 #{log.pk}: {log.query[:45]} — {verdict['note']}"
+                flagged_lines.append(line)
                 self.stdout.write(self.style.WARNING(line))
 
             if options['apply']:
-                log.verification = 'passed' if verdict['consistent'] else 'suspect'
+                log.verification = LearnlogService.VERDICT_TO_VERIFICATION[verdict['verdict']]
                 log.verification_note = verdict['note']
                 log.save(update_fields=['verification', 'verification_note'])
 
         mode = "저장 완료" if options['apply'] else "dry-run (저장 안 함 — --apply로 반영)"
         self.stdout.write(self.style.SUCCESS(
-            f"\n완료 [{mode}]: 일치 {passed} / 의심 {suspect} / 컨텍스트 없음 {skipped} / 실패 {failed}"
+            f"\n완료 [{mode}]: 일치 {passed} / 모순 의심 {suspect} / 근거 없음 {unsupported}"
+            f" / 컨텍스트 없음 {skipped} / 실패 {failed}"
         ))
-        if suspect_lines:
-            self.stdout.write("\n의심 목록 (내용 확인 추천):")
-            for line in suspect_lines:
+        if flagged_lines:
+            self.stdout.write("\n확인 추천 목록 (⚠️ 모순 의심 / 🔍 근거 없음):")
+            for line in flagged_lines:
                 self.stdout.write(line)
