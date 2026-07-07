@@ -150,7 +150,9 @@ def main():
         print(f"     ⚠️ #{pk}: {query} — {note}")
 
     print(f"\n상세 결과: {out_path}")
-    print("반영하려면: docker compose exec web python manage.py verify_logs --apply")
+    print("재분류를 DB에 반영하려면: 대상 로그의 verification을 ''로 초기화한 뒤")
+    print("  docker compose exec web python manage.py verify_logs --apply")
+    print("  (verify_logs는 미검증 로그만 처리 — 기존 판정은 덮어쓰지 않음)")
 
 
 if __name__ == '__main__':
