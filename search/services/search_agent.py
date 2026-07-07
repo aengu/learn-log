@@ -71,8 +71,12 @@ def build_search_agent(service):
         ):
             chunks.append(chunk)
             writer({'token': chunk})
+        # 스트리밍은 토큰 단위라 인용 검증을 생성 중에 못 함 — 합쳐진 뒤 여기서 수행
+        answer = service.sanitize_citations(
+            ''.join(chunks).strip(), state.get('search_results'),
+        )
         return {
-            'answer': ''.join(chunks).strip(),
+            'answer': answer,
             'truncated': meta.get('finish_reason') == 'length',
         }
 

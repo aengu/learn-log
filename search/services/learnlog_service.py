@@ -1,4 +1,5 @@
 import json
+import re
 import textwrap
 from concurrent.futures import ThreadPoolExecutor
 
@@ -35,6 +36,9 @@ class LearnlogService:
         'contradicted': 'suspect',
         'no_evidence': 'unsupported',
     }
+
+    # 인라인 인용 표시 [1]~[9] (참고 발췌는 최대 WEB_CONTEXT_RESULTS건이라 한 자리면 충분)
+    CITATION_PATTERN = re.compile(r'\[([1-9])\]')
 
     def __init__(self):
         self.mistral_client = Mistral(
@@ -258,12 +262,8 @@ class LearnlogService:
         판정 실패·알 수 없는 verdict는 예외로 올린다 (호출자가 미검증 처리).
         """
         retrieved = self._build_retrieved_context(retrieved_logs or [], limit=retrieved_limit)
-        # 생성 프롬프트와 동일한 웹 발췌 규칙 — Judge가 생성이 본 것과 같은 컨텍스트를 보게
-        web_chars = 400 if retrieved_logs else 800
-        web = "\n".join(
-            f"[{r.get('url', '')}] {r.get('content', '')[:web_chars]}"
-            for r in (search_results or {}).get('results', [])[:self.WEB_CONTEXT_RESULTS]
-        )
+        # 생성 프롬프트와 동일한 웹 발췌 블록 — Judge가 생성이 본 것과 같은 컨텍스트를 보게
+        web = self._build_web_context(search_results or {}, retrieved_logs)
         context = f"{retrieved}{web}".strip()
         if not context:
             return None
@@ -438,16 +438,51 @@ class LearnlogService:
             f"[이전 답변] {parent.ai_response[:500]}\n\n"
         )
 
+    def _build_web_context(self, search_results, retrieved_logs):
+        """
+        생성·검증 프롬프트 공용 웹 발췌 블록. [1] [2] 번호를 붙여 인라인 인용의 기준이 된다.
+        로그 블록이 빠지면 그 토큰 예산을 웹 발췌에 재배분 (search_agent의 retrieved_limit과 대칭).
+        """
+        web_chars = 400 if retrieved_logs else 800
+        return "\n".join(
+            f"[{i}] {r.get('url', '')} — {r.get('content', '')[:web_chars]}"
+            for i, r in enumerate(search_results.get('results', [])[:self.WEB_CONTEXT_RESULTS], start=1)
+        )
+
+    # 인용 지시 — 참고 블록이 있을 때만 프롬프트에 포함 (custom_instructions와 무관하게 적용)
+    CITATION_RULE = (
+        "참고 자료의 내용을 근거로 쓴 문장에는 끝에 [1]처럼 해당 번호를 표시하세요. "
+        "참고에 근거가 없는 문장에는 번호를 붙이지 마세요.\n\n"
+    )
+
+    def sanitize_citations(self, answer, search_results):
+        """
+        답변 속 인라인 인용 [n]의 결정적 검증 — 프롬프트에 넣은 참고 개수를 벗어난
+        번호(모델이 지어낸 인용)를 제거한다. correct_index 가드와 같은 원리로
+        LLM 판정 없이 코드 비교만 한다. 코드 블록·인라인 코드 안(arr[1] 등)은 건드리지 않는다.
+        """
+        valid_max = min(
+            len((search_results or {}).get('results', [])), self.WEB_CONTEXT_RESULTS,
+        )
+
+        def clean(text):
+            return self.CITATION_PATTERN.sub(
+                lambda m: m.group(0) if int(m.group(1)) <= valid_max else '', text,
+            )
+
+        parts = answer.split('```')
+        for i in range(0, len(parts), 2):  # 짝수 인덱스만 코드 펜스 밖
+            segs = parts[i].split('`')
+            for j in range(0, len(segs), 2):  # 짝수 인덱스만 인라인 코드 밖
+                segs[j] = clean(segs[j])
+            parts[i] = '`'.join(segs)
+        return '```'.join(parts)
+
     def generate_answer(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
         """
         Mistral API로 AI 답변 생성
         """
-        # 로그 블록이 빠지면 그 토큰 예산을 웹 발췌에 재배분 (search_agent의 retrieved_limit과 대칭)
-        web_chars = 400 if retrieved_logs else 800
-        context = "\n".join([
-            f"[{r.get('url', '')}] {r.get('content', '')[:web_chars]}"
-            for r in search_results.get('results', [])[:self.WEB_CONTEXT_RESULTS]
-        ])
+        context = self._build_web_context(search_results, retrieved_logs)
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
@@ -458,7 +493,7 @@ class LearnlogService:
             "개발 질문에 한국어로 답변하세요.\n\n"
             f"{retrieved}{conversation}질문: {query}\n\n"
             f"참고:\n{context if context else '없음'}\n\n"
-            f"{instructions}"
+            f"{self.CITATION_RULE if context else ''}{instructions}"
         )
 
         try:
@@ -468,7 +503,8 @@ class LearnlogService:
                 temperature=self.ANSWER_TEMPERATURE,
                 max_tokens=2000
             )
-            return response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content.strip()
+            return self.sanitize_citations(answer, search_results)
         except Exception as e:
             print(f"AI 답변 생성 오류: {e}")
             return "답변 생성 중 오류가 발생했습니다."
@@ -478,13 +514,10 @@ class LearnlogService:
         Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield.
         meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
         ('length'면 max_tokens 잘림 — 호출자가 잘림 플래그에 사용).
+        스트리밍이라 인용 검증(sanitize_citations)은 여기서 못 하고,
+        전체 답변이 합쳐지는 호출자(search_agent generate 노드)가 수행한다.
         """
-        # 로그 블록이 빠지면 그 토큰 예산을 웹 발췌에 재배분 (search_agent의 retrieved_limit과 대칭)
-        web_chars = 400 if retrieved_logs else 800
-        context = "\n".join([
-            f"[{r.get('url', '')}] {r.get('content', '')[:web_chars]}"
-            for r in search_results.get('results', [])[:self.WEB_CONTEXT_RESULTS]
-        ])
+        context = self._build_web_context(search_results, retrieved_logs)
 
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
         conversation = self._build_conversation_context(parent)
@@ -495,7 +528,7 @@ class LearnlogService:
             "개발 질문에 한국어로 답변하세요.\n\n"
             f"{retrieved}{conversation}질문: {query}\n\n"
             f"참고:\n{context if context else '없음'}\n\n"
-            f"{instructions}"
+            f"{self.CITATION_RULE if context else ''}{instructions}"
         )
 
         try:
@@ -581,9 +614,10 @@ class LearnlogService:
         """
         Groq API로 노션 스타일 마크다운 변환
         """
+        # 번호 목록 — 본문의 인라인 인용 [n]이 가리키는 순서와 동일 (생성 프롬프트의 참고 순서)
         refs = "\n".join([
-            f"- [{r.get('title', 'N/A')}]({r.get('url', '')})"
-            for r in search_results.get('results', [])
+            f"{i}. [{r.get('title', 'N/A')}]({r.get('url', '')})"
+            for i, r in enumerate(search_results.get('results', []), start=1)
         ])
 
         prompt = textwrap.dedent(f"""
@@ -602,7 +636,8 @@ class LearnlogService:
             - 핵심 내용은 명확하게 구조화
             - 차이점이나 비교는 표(table) 사용
             - 코드 예시는 적절한 언어로 ```언어 코드블록``` 사용
-            - 참고 자료는 맨 아래 "## 참고 자료" 섹션에
+            - 본문에 있는 [숫자] 인용 표시는 삭제하지 말고 그대로 유지 (참고 자료 번호와 대응됨)
+            - 참고 자료는 맨 아래 "## 참고 자료" 섹션에 번호 목록 그대로
             - 노션에 바로 복사/붙여넣기 가능하게
 
             출력:

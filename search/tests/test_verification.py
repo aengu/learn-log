@@ -114,6 +114,7 @@ class TestTruncatedFlag:
         service.decide_route.return_value = {'use_logs': False, 'need_web': True, 'reason': ''}
         service.search_official_docs.return_value = {'results': []}
         service.generate_answer_stream.side_effect = stream
+        service.sanitize_citations.side_effect = lambda answer, search_results: answer
         return service
 
     def test_finish_reason_length면_truncated(self):

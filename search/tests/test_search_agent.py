@@ -13,6 +13,7 @@ def make_service(route=None):
     service.decide_route.return_value = route or {'use_logs': True, 'need_web': True, 'reason': ''}
     service.search_official_docs.return_value = {'results': [{'url': 'u', 'content': 'c'}]}
     service.generate_answer_stream.side_effect = lambda *a, **k: iter(['답', '변'])
+    service.sanitize_citations.side_effect = lambda answer, search_results: answer
     return service
 
 
