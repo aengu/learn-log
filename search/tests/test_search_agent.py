@@ -2,8 +2,9 @@
 search_agent 그래프 테스트 — 노드 연결과 분기를 검증한다.
 LLM/DB 호출은 전부 모킹: 노드가 올바른 순서·인자로 서비스 메서드를 부르는지가 관심사.
 """
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from search.services import LearnlogService
 from search.services.search_agent import build_search_agent
 
 
@@ -80,3 +81,22 @@ class TestAnswerSource:
         result = run_agent(service)
         assert result['answer_source'] == 'web'
         assert service.generate_answer_stream.call_args.kwargs['retrieved_logs'] is None
+
+
+class TestDecideRoute:
+    """라우터 판단 폴백 — 실패해도 라우팅 도입 전 파이프라인과 동일하게 동작해야 한다"""
+
+    def _decide(self, **judge):
+        service = LearnlogService.__new__(LearnlogService)  # API 클라이언트 초기화 없이
+        with patch.object(LearnlogService, '_call_groq_json', **judge):
+            return service.decide_route('테스트 질문입니다', [])
+
+    def test_judge_실패시_둘다_True(self):
+        decision = self._decide(side_effect=RuntimeError('LLM 장애'))
+        assert decision['use_logs'] is True
+        assert decision['need_web'] is True
+
+    def test_응답에_키_누락시_기본값_True(self):
+        decision = self._decide(return_value={'reason': '근거만 있는 응답'})
+        assert decision['use_logs'] is True
+        assert decision['need_web'] is True

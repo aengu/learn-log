@@ -72,17 +72,17 @@ class TestSaveVerificationInit:
             answer_source=answer_source,
         )
 
-    def test_컨텍스트_있는_답변은_pending(self):
+    @pytest.mark.parametrize('source, expected', [
+        ('both', 'pending'),
+        ('logs', 'pending'),
+        ('web', 'pending'),
+        ('none', ''),
+        ('', ''),
+    ])
+    def test_answer_source별_verification_초기값(self, source, expected):
         service = _service_without_clients()
         with patch.object(LearnlogService, '_embed', return_value=None):
-            log = self._save(service, 'logs')
-        assert log.verification == 'pending'
-
-    def test_컨텍스트_없으면_미검증(self):
-        service = _service_without_clients()
-        with patch.object(LearnlogService, '_embed', return_value=None):
-            assert self._save(service, 'none').verification == ''
-            assert self._save(service, '').verification == ''
+            assert self._save(service, source).verification == expected
 
 
 class TestTruncatedFlag:
@@ -129,6 +129,57 @@ class TestStreamFailure:
             body = b''.join(resp.streaming_content).decode()
         assert 'event: error' in body
         assert LearningLog.objects.count() == 0
+
+
+@pytest.mark.django_db
+class TestVerifyThreadArgs:
+    """
+    SSE 뷰가 검증 스레드에 넘기는 인자 — 검증은 생성에 쓴 컨텍스트·절삭 길이를
+    그대로 받아야 한다 (다르면 생성 때 없던 내용으로 판정 → 배지 신뢰도 붕괴).
+    """
+
+    def _run(self, client, state):
+        """에이전트를 모킹해 state만 흘리고, 검증 스레드 생성 지점을 캡처한다"""
+        agent = Mock()
+        agent.stream.return_value = iter([('updates', {'generate': {'answer': '답변', **state}})])
+        # threading "모듈 속성"만 교체 — threading.Thread를 직접 패치하면 전역이라
+        # 뷰의 ThreadPoolExecutor 워커까지 Mock이 되어 데드락
+        with patch('search.api_views.LearnlogService') as MockService, \
+             patch('search.api_views.build_search_agent', return_value=agent), \
+             patch('search.api_views.threading') as mock_threading:
+            MockService.return_value.extract_tags.return_value = []
+            MockService.return_value.convert_to_markdown.return_value = '## md'
+            MockService.return_value.save_learning_log.return_value = LearningLogFactory()
+            resp = client.post(reverse('search:query_api_stream'), {'query': '테스트 질문입니다'})
+            b''.join(resp.streaming_content)  # 스트림 소진 → 뷰 로직 실행
+        return mock_threading.Thread
+
+    def test_both는_로그와_웹_컨텍스트를_생성_절삭길이로(self, client):
+        web = {'results': [{'url': 'u', 'content': '내용'}]}
+        thread = self._run(client, {'answer_source': 'both', 'retrieved_logs': ['로그'], 'search_results': web})
+        _, retrieved, limit, search_results = thread.call_args.kwargs['args']
+        assert retrieved == ['로그']
+        assert limit == 500
+        assert search_results == web
+
+    def test_logs는_웹_없이_확대_절삭길이로(self, client):
+        thread = self._run(client, {'answer_source': 'logs', 'retrieved_logs': ['로그']})
+        _, retrieved, limit, search_results = thread.call_args.kwargs['args']
+        assert retrieved == ['로그']
+        assert limit == 1500
+        assert search_results is None
+
+    def test_web은_로그_컨텍스트_없이(self, client):
+        web = {'results': [{'url': 'u', 'content': '내용'}]}
+        thread = self._run(client, {'answer_source': 'web', 'search_results': web})
+        _, retrieved, limit, search_results = thread.call_args.kwargs['args']
+        assert retrieved is None
+        assert limit == 500
+        assert search_results == web
+
+    def test_none은_검증_스레드_없음(self, client):
+        thread = self._run(client, {'answer_source': 'none'})
+        thread.assert_not_called()
 
 
 @pytest.mark.django_db
