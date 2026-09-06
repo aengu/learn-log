@@ -40,4 +40,8 @@ jobs:
         env:
           DEBUG: 'True'
           DATABASE_HOST: localhost
+          # 클라이언트 생성만 통과시키는 더미값 - 실제 호출은 테스트에서 모킹한다
+          GROQ_API_KEY: dummy-for-ci
+          MISTRAL_API_KEY: dummy-for-ci
+          TAVILY_API_KEY: dummy-for-ci
         run: pytest
