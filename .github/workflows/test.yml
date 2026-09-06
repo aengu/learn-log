@@ -13,7 +13,7 @@ jobs:
 
     services:
       db:
-        image: postgres:15-alpine
+        image: pgvector/pgvector:pg18  # compose와 동일 - pgvector 확장 필요
         env:
           POSTGRES_DB: learnlog
           POSTGRES_USER: learnlog_user
