@@ -1,0 +1,5 @@
+{"variant": "v2", "query_id": "python_gc", "iteration": 0, "elapsed_sec": 2.056, "prompt_chars": 1806, "steps": 4, "error": null, "prompt_tokens": 744, "completion_tokens": 754, "total_tokens": 1498}
+{"variant": "v3", "query_id": "python_gc", "iteration": 0, "elapsed_sec": 2.789, "prompt_chars": 2369, "steps": 3, "error": null, "prompt_tokens": 1030, "completion_tokens": 1098, "total_tokens": 2128}
+{"variant": "v2", "query_id": "python_gc", "iteration": 1, "elapsed_sec": 33.864, "prompt_chars": 1806, "steps": 4, "error": null, "prompt_tokens": 744, "completion_tokens": 810, "total_tokens": 1554}
+{"variant": "v3", "query_id": "python_gc", "iteration": 1, "elapsed_sec": 38.105, "prompt_chars": 2369, "steps": 5, "error": null, "prompt_tokens": 1030, "completion_tokens": 1672, "total_tokens": 2702}
+{"variant": "v2", "query_id": "python_gc", "iteration": 2, "elapsed_sec": 2.313, "prompt_chars": 1806, "steps": 5, "error": null, "prompt_tokens": 744, "completion_tokens": 935, "total_tokens": 1679}

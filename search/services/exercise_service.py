@@ -95,7 +95,7 @@ class ExerciseService:
             답변: {log.ai_response[:500]}
 
             JSON으로만 응답 (```없이):
-            {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "correct_answer": "A", "explanation": "설명"}}]}}
+            {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "correct_answer": "A", "explanation": "설명", "distractors": [{{"index": 1, "type": "adjacent", "why": "이 보기를 고른 사람이 오해한 것"}}, {{"index": 2, "type": "one-step-short", "why": "..."}}, {{"index": 3, "type": "inverted", "why": "..."}}]}}]}}
 
             ⚠️ correct_index 규칙 (반드시 준수):
             - choices 배열의 0-based 인덱스 (첫 요소 = 0)
@@ -106,17 +106,48 @@ class ExerciseService:
             ⚠️ correct_answer 규칙:
             - 정답의 실제 값(value). choices 배열 중 한 요소와 글자까지 정확히 같아야 함.
             - 항상 choices[correct_index]와 동일한 문자열을 넣으세요. (코드 레벨 검증용 ground truth)
+
+            ⚠️ 오답 규칙 (문제의 품질은 정답이 아니라 오답이 결정합니다):
+            - distractors에 오답 3개를 전부 적으세요. index는 correct_index가 아닌 나머지 셋.
+            - why: "이 보기를 고른 사람은 무엇을 오해한 것인가"를 한 문장으로.
+              쓸 수 없는 보기는 아무도 안 고르는 죽은 보기이므로 다른 오답으로 바꾸세요.
+            - type은 다음 중 하나:
+              adjacent(인접 개념 치환) / inverted(방향·주체를 뒤집음) /
+              overgeneralized(조건부 참을 단정) / one-step-short(부분적으로 맞지만 핵심 누락) /
+              vendor-mixup(다른 버전·다른 도구의 동작) / outdated(예전엔 맞았던 것) /
+              plausible-number(자릿수·단위가 그럴듯하게 틀림)
+            - 오답 3개가 전부 같은 type이면 안 됩니다. 최소 2종을 섞으세요.
+            - one-step-short를 최소 1개 넣으세요. 아는 사람과 어설프게 아는 사람을 가르는 것은
+              대개 "거의 맞았지만 핵심을 빠뜨린 답"입니다.
+
+            ⚠️ 요령으로 풀리지 않게:
+            - 정답만 길게 쓰지 마세요. 네 보기의 길이와 서술 밀도를 맞추세요.
+              정답이 메커니즘을 말하면 오답도 (틀린) 메커니즘을 말해야 합니다.
+            - "위의 모든 것", "정답 없음", "해당 없음" 금지.
+            - 발문에 정답을 흘리지 마세요. 발문과 어휘가 가장 많이 겹치는 보기가 정답이면 실패입니다.
+            - "항상/절대/모든/반드시" 같은 단정 표현이 오답에만 몰리면 안 됩니다.
         """).strip()
 
         content, raw_count = self._gen_and_validate(prompt)
+        attempts = [content.get('_audit', {})]
         # 환각 1개라도 발생(통과 < raw) 또는 통과 step 부족이면 1회 재생성, 더 많은 쪽 채택
         all_ok = len(content.get('steps', [])) == raw_count and raw_count >= self.PATH_TRACE_MIN_STEPS
         if not all_ok:
             retry, _ = self._gen_and_validate(prompt)
+            attempts.append(retry.get('_audit', {}))
             if len(retry.get('steps', [])) > len(content.get('steps', [])):
                 content = retry
-        if not content.get('steps'):
-            raise ValueError("path_trace 출제 실패: 유효한 step이 없습니다")
+        # 채택하지 않은 시도의 탈락 사유도 남긴다. 버리면 발동률을 잴 수 없다.
+        content['_audit'] = {'attempts': attempts}
+
+        # 재생성 트리거가 아니라 출제 실패 조건이다.
+        # 이전에는 빈 배열만 막아서, 4개가 조용히 사라진 1-step 문항이 그대로 나갔다.
+        if len(content.get('steps', [])) < self.PATH_TRACE_MIN_STEPS:
+            # 실패하면 content가 통째로 사라지므로 사유를 예외 메시지에 싣는다
+            raise ValueError(
+                f"path_trace 출제 실패: 유효한 step이 {len(content.get('steps', []))}개 "
+                f"(최소 {self.PATH_TRACE_MIN_STEPS}개 필요) / audit={attempts}"
+            )
         return content
 
     def _gen_and_validate(self, prompt):
@@ -131,21 +162,122 @@ class ExerciseService:
         raw_count = len(raw.get('steps', []))
         return self._filter_valid_steps(raw), raw_count
 
+    # ── 오답 품질 게이트 ───────────────────────────────────────────
+    # 정답 자리(correct_index)가 맞는지는 _filter_valid_steps가 본다.
+    # 여기서 보는 것은 "오답 3개가 기능하는가" — 요령으로 풀리는 문항을 잡는다.
+    # 저작 규약 출처: github.com/midagedev/cachehit AUTHORING.md
+    #
+    # 발문 누출(§3-9) 검사는 넣지 않는다. 규약이 "기계로 검사되지 않는다"로 분류했고,
+    # 저자가 구현해서 측정했으나 지목군과 대조군의 분포가 분리되지 않았다고 기록했다.
+    # 한국어에서는 조사 때문에 "트랜잭션이" != "트랜잭션은"이라 겹침이 더 낮게 나온다.
+    BANNED_CHOICE_PATTERNS = ("위의 모든", "모두 정답", "정답 없음", "해당 없음", "위 모두")
+    ABSOLUTE_WORDS = ("항상", "절대", "모든", "반드시", "전혀", "결코", "무조건")
+    DISTRACTOR_TYPES = {
+        "adjacent", "inverted", "overgeneralized",
+        "one-step-short", "vendor-mixup", "outdated", "plausible-number",
+    }
+    LENGTH_BIAS_RATIO = 1.4   # 정답 길이가 오답 평균의 이 배를 넘으면 "제일 긴 것 고르기"로 풀린다
+
+    @classmethod
+    def _audit_quality(cls, step):
+        """
+        (하드 위반, 소프트 위반)을 코드 목록으로 돌려준다.
+        하드는 명백한 규칙 위반이라 step을 탈락시키고,
+        소프트는 휴리스틱이라 기록만 한다(오판 가능 — 발동률을 재본 뒤 강제 여부를 정한다).
+        """
+        hard, soft = [], []
+        choices = step.get("choices", [])
+        ci = step.get("correct_index")
+        wrong = [c for i, c in enumerate(choices) if i != ci]
+
+        # H1. 금지 보기
+        if any(p in str(c) for c in choices for p in cls.BANNED_CHOICE_PATTERNS):
+            hard.append("banned-choice")
+
+        # 오답 메타는 index별로 정확히 하나씩 있어야 한다.
+        # 개수만 세면 중복 index로 개수를 채워 빈 why를 통과시킬 수 있다.
+        meta = [d for d in (step.get("distractors") or []) if isinstance(d, dict)]
+        want = {i for i in range(len(choices)) if i != ci} if ci is not None else set()
+        by_index, duplicated = {}, False
+        for d in meta:
+            idx = d.get("index")
+            if idx in by_index:
+                duplicated = True
+            by_index[idx] = d
+
+        if meta and (duplicated or set(by_index) != want):
+            # 결정적 검증이라 correct_index 검사와 같은 등급이다
+            hard.append("distractor-index-mismatch")
+        elif want:
+            # 각 오답이 자기 why를 갖고 있는지 — 개수가 아니라 항목별로 본다
+            if any(not str(by_index[i].get("why", "")).strip() for i in want):
+                hard.append("missing-distractor-why")
+
+            types = [by_index[i].get("type") for i in want]
+            known = [t for t in types if t in cls.DISTRACTOR_TYPES]
+            if len(known) != len(types):
+                hard.append("unknown-distractor-type")
+            elif len(known) >= 2 and len(set(known)) < 2:
+                # 오답 타입이 전부 같으면 응시자가 패턴을 학습한다
+                hard.append("uniform-distractor-type")
+
+        # S1. 길이 편향
+        if wrong and ci is not None and 0 <= ci < len(choices):
+            avg_wrong = sum(len(str(c)) for c in wrong) / len(wrong)
+            if avg_wrong and len(str(choices[ci])) > avg_wrong * cls.LENGTH_BIAS_RATIO:
+                soft.append("length-bias")
+
+        # S2. 단정 표현이 오답에만 몰리면 그 단어만 보고 소거된다
+        if wrong and ci is not None and 0 <= ci < len(choices):
+            in_wrong = sum(any(w in str(c) for w in cls.ABSOLUTE_WORDS) for c in wrong)
+            in_correct = any(w in str(choices[ci]) for w in cls.ABSOLUTE_WORDS)
+            if in_wrong == len(wrong) and not in_correct:
+                soft.append("absolute-word-skew")
+
+        return hard, soft
+
+    @classmethod
+    def _apply_quality_gates(cls, content):
+        """하드 위반 step을 걸러내고, 소프트 위반은 step에 기록해 나중에 집계할 수 있게 남긴다."""
+        audit = content.setdefault("_audit", {"raw_count": len(content.get("steps", [])), "dropped": []})
+        kept = []
+        for step in content.get("steps", []):
+            hard, soft = cls._audit_quality(step)
+            if hard:
+                # 왜 버렸는지 남긴다. 없으면 잘못 버린 비율을 영영 측정할 수 없다.
+                audit["dropped"].append({"reason": hard})
+                continue
+            if soft:
+                step["_quality_flags"] = soft
+            kept.append(step)
+        content["steps"] = kept
+
+        # C1. 정답 위치가 전 step에서 같으면 위치만 보고 찍을 수 있다
+        idxs = [st.get("correct_index") for st in kept]
+        if len(idxs) >= 3 and len(set(idxs)) == 1:
+            for st in kept:
+                st.setdefault("_quality_flags", []).append("correct-index-fixed")
+        return content
+
     @staticmethod
     def _filter_valid_steps(content):
         """
         choices[correct_index] == correct_answer를 만족하는 step만 남긴다.
         결정적 규칙 검증(LLM 판정이 아닌 코드 비교)이라 환각이 통과할 여지가 없다.
         """
-        valid = []
-        for step in content.get('steps', []):
+        raw = content.get('steps', [])
+        valid, dropped = [], []
+        for step in raw:
             ci = step.get('correct_index')
             ca = step.get('correct_answer')
             cs = step.get('choices', [])
             if isinstance(ci, int) and 0 <= ci < len(cs) and ca is not None and cs[ci] == ca:
                 valid.append(step)
+            else:
+                dropped.append({'reason': 'correct-index-mismatch'})
         content['steps'] = valid
-        return content
+        content['_audit'] = {'raw_count': len(raw), 'dropped': dropped}
+        return ExerciseService._apply_quality_gates(content)
 
     def _call_mistral_json(self, prompt):
         """

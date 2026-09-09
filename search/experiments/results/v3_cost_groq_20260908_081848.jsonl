@@ -1,0 +1,2 @@
+{"variant": "v2", "query_id": "python_gc", "iteration": 0, "elapsed_sec": 2.428, "prompt_chars": 1806, "steps": 5, "error": null, "prompt_tokens": 744, "completion_tokens": 866, "total_tokens": 1610}
+{"variant": "v3", "query_id": "python_gc", "iteration": 0, "elapsed_sec": 4.044, "prompt_chars": 2369, "steps": 4, "error": null, "prompt_tokens": 1030, "completion_tokens": 1469, "total_tokens": 2499}

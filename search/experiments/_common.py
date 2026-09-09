@@ -8,6 +8,7 @@
 import json
 import re
 import textwrap
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -175,11 +176,62 @@ def get_query(query_id):
 # services.py 프롬프트 수정 시 반드시 아래 템플릿도 함께 수정할 것.
 # build_old_prompt: correct_index 규칙 추가 이전의 베이스라인 프롬프트 (고정, 수정 금지).
 # build_v1_prompt: correct_index 규칙 추가 직후의 v1 프롬프트 (고정, 수정 금지).
-# v2 실험 결과 v1보다 나빴다면 롤백 또는 재실행을 위해 보존.
+# build_v2_prompt: shifted choices 예시 + self-check 버전 (고정, 수정 금지).
+# build_new_prompt: 현재 프로덕션 = v3. 오답(distractor) 규약 + 요령 방지 규칙 추가.
+# 이전 버전을 보존하는 이유: 실험 결과가 나빴을 때 롤백하거나 재실행하기 위해.
 
 
 def build_new_prompt(query, response):
-    """현재 프로덕션(services.py)의 프롬프트 = v2. shifted choices 예시 + self-check."""
+    """현재 프로덕션(services.py `_gen_path_trace`)의 프롬프트 = v3.
+
+    오답(distractor) 규약 + 요령 방지 규칙 추가.
+    services.py에서 기계적으로 옮긴 것이므로, 그쪽을 고치면 여기도 함께 고칠 것.
+    (서비스의 _parent_context는 로그 의존이라 여기서는 비운다.)
+    """
+    return textwrap.dedent(f"""\
+        아래 학습 내용으로 "경로추적" 연습문제를 만들어주세요.
+        실행 흐름을 단계별로 추적하며 객관식으로 답하는 유형입니다. steps는 3~5개.
+
+        질문: {query}
+        답변: {response[:500]}
+
+        JSON으로만 응답 (```없이):
+        {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "correct_answer": "A", "explanation": "설명", "distractors": [{{"index": 1, "type": "adjacent", "why": "이 보기를 고른 사람이 오해한 것"}}, {{"index": 2, "type": "one-step-short", "why": "..."}}, {{"index": 3, "type": "inverted", "why": "..."}}]}}]}}
+
+        ⚠️ correct_index 규칙 (반드시 준수):
+        - choices 배열의 0-based 인덱스 (첫 요소 = 0)
+        - choices[correct_index]가 정답 값과 정확히 같아야 함
+        - 예: choices=["1","2","3","4"], 정답="2" → correct_index=1 (choices[1]="2")
+        - correct_index를 정한 뒤 choices[correct_index]로 검증하세요.
+
+        ⚠️ correct_answer 규칙:
+        - 정답의 실제 값(value). choices 배열 중 한 요소와 글자까지 정확히 같아야 함.
+        - 항상 choices[correct_index]와 동일한 문자열을 넣으세요. (코드 레벨 검증용 ground truth)
+
+        ⚠️ 오답 규칙 (문제의 품질은 정답이 아니라 오답이 결정합니다):
+        - distractors에 오답 3개를 전부 적으세요. index는 correct_index가 아닌 나머지 셋.
+        - why: "이 보기를 고른 사람은 무엇을 오해한 것인가"를 한 문장으로.
+          쓸 수 없는 보기는 아무도 안 고르는 죽은 보기이므로 다른 오답으로 바꾸세요.
+        - type은 다음 중 하나:
+          adjacent(인접 개념 치환) / inverted(방향·주체를 뒤집음) /
+          overgeneralized(조건부 참을 단정) / one-step-short(부분적으로 맞지만 핵심 누락) /
+          vendor-mixup(다른 버전·다른 도구의 동작) / outdated(예전엔 맞았던 것) /
+          plausible-number(자릿수·단위가 그럴듯하게 틀림)
+        - 오답 3개가 전부 같은 type이면 안 됩니다. 최소 2종을 섞으세요.
+        - one-step-short를 최소 1개 넣으세요. 아는 사람과 어설프게 아는 사람을 가르는 것은
+          대개 "거의 맞았지만 핵심을 빠뜨린 답"입니다.
+
+        ⚠️ 요령으로 풀리지 않게:
+        - 정답만 길게 쓰지 마세요. 네 보기의 길이와 서술 밀도를 맞추세요.
+          정답이 메커니즘을 말하면 오답도 (틀린) 메커니즘을 말해야 합니다.
+        - "위의 모든 것", "정답 없음", "해당 없음" 금지.
+        - 발문에 정답을 흘리지 마세요. 발문과 어휘가 가장 많이 겹치는 보기가 정답이면 실패입니다.
+        - "항상/절대/모든/반드시" 같은 단정 표현이 오답에만 몰리면 안 됩니다.
+    """).strip()
+
+
+def build_v2_prompt(query, response):
+    """v2 프롬프트 (보존용). shifted choices 예시 + self-check. 오답 규약 도입 전."""
     return textwrap.dedent(f"""\
         다음 학습 내용을 바탕으로 "경로추적" 유형 연습문제를 만들어주세요.
 
@@ -277,6 +329,90 @@ def build_old_prompt(query, response):
         }}
         steps는 3~5개로 구성하세요.
     """).strip()
+
+
+def call_groq_timed(client, prompt, model):
+    """call_mistral_timed의 Groq판. 반환 형태를 같게 맞춰 둔다.
+
+    Groq에는 Mistral과 같은 모델이 없다. 프로덕션 지연을 대신 잴 수는 없고,
+    "프롬프트를 늘리면 얼마나 더 걸리나"라는 증분을 볼 때만 쓴다.
+    모델명은 호출부에서 넘긴다.
+    """
+    started = time.perf_counter()
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=TEMPERATURE,
+            max_tokens=MISTRAL_MAX_TOKENS,
+            response_format={"type": "json_object"},
+        )
+    except Exception as e:
+        elapsed = time.perf_counter() - started
+        msg = str(e).lower()
+        if any(h in msg for h in RATE_LIMIT_HINTS):
+            raise RateLimitHit(str(e)) from e
+        return elapsed, None, {}, f"[API 에러] {e}"
+
+    elapsed = time.perf_counter() - started
+    u = getattr(response, "usage", None)
+    usage = {
+        "prompt_tokens": getattr(u, "prompt_tokens", None),
+        "completion_tokens": getattr(u, "completion_tokens", None),
+        "total_tokens": getattr(u, "total_tokens", None),
+    }
+    raw = response.choices[0].message.content
+    try:
+        return elapsed, json.loads(raw), usage, None
+    except json.JSONDecodeError as e:
+        return elapsed, None, usage, f"[JSON 파싱 실패] {e} | raw={raw[:200]}"
+
+
+# ── Mistral 호출 (소요시간 측정용) ────────────────────────────────
+# 정확도 실험은 Groq로 하지만, 프로덕션 출제는 Mistral이다.
+# 프롬프트가 길어져 생긴 지연을 재려면 실제로 쓰는 쪽에서 재야 한다.
+# 설정은 services.py의 _call_mistral_json과 같게 유지할 것 (다르면 측정이 무의미).
+
+MISTRAL_MODEL = "mistral-small-latest"
+MISTRAL_MAX_TOKENS = 2000
+
+
+def call_mistral_timed(client, prompt, model=MISTRAL_MODEL):
+    """Mistral 호출 → (경과초, parsed_json 또는 None, usage dict, 에러문자열 또는 None).
+
+    경과초는 요청 직전부터 응답 수신까지의 벽시계 시간이다.
+    네트워크와 서버 큐가 함께 들어가므로 한 번의 값은 의미가 없고,
+    같은 조건에서 여러 번 재서 중앙값으로 봐야 한다.
+    """
+    started = time.perf_counter()
+    try:
+        response = client.chat.complete(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=TEMPERATURE,
+            max_tokens=MISTRAL_MAX_TOKENS,
+            response_format={"type": "json_object"},
+        )
+    except Exception as e:
+        elapsed = time.perf_counter() - started
+        msg = str(e).lower()
+        if any(h in msg for h in RATE_LIMIT_HINTS):
+            raise RateLimitHit(str(e)) from e
+        return elapsed, None, {}, f"[API 에러] {e}"
+
+    elapsed = time.perf_counter() - started
+    u = getattr(response, "usage", None)
+    usage = {
+        "prompt_tokens": getattr(u, "prompt_tokens", None),
+        "completion_tokens": getattr(u, "completion_tokens", None),
+        "total_tokens": getattr(u, "total_tokens", None),
+    }
+
+    raw = response.choices[0].message.content
+    try:
+        return elapsed, json.loads(raw), usage, None
+    except json.JSONDecodeError as e:
+        return elapsed, None, usage, f"[JSON 파싱 실패] {e} | raw={raw[:200]}"
 
 
 # ── Groq 호출 ─────────────────────────────────────────────────────
