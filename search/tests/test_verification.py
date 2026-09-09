@@ -115,8 +115,9 @@ class TestStreamFailure:
 
     def test_스트리밍_실패는_에러문구_yield_대신_예외전파(self):
         service = _service_without_clients()
-        service.mistral_client = Mock()
-        service.mistral_client.chat.stream.side_effect = RuntimeError('LLM 장애')
+        # 답변 생성은 Groq으로 옮겼다 (mistral_client는 임베딩 전용으로만 남아 있다)
+        service.groq_client = Mock()
+        service.groq_client.chat.completions.create.side_effect = RuntimeError('LLM 장애')
         with pytest.raises(RuntimeError):
             list(service.generate_answer_stream('질문입니다', {'results': []}))
 

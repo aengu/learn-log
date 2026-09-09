@@ -1,0 +1,40 @@
+name: Model Healthcheck
+
+# 실제 LLM 모델이 살아 있는지 주기적으로 확인한다.
+# test.yml은 모든 LLM 호출을 모킹하고 더미 키를 쓰므로 모델이 죽어도 초록으로 통과한다.
+# 실제로 2026-09에 모델 4개가 죽는 동안 CI는 계속 초록이었다.
+#
+# push마다 돌리지 않는 이유: 외부 API 장애나 레이트 리밋으로 CI가 빨개지면
+# 빨간 CI가 "내 코드가 깨졌다"는 신호가 아니게 된다.
+on:
+  schedule:
+    # 매일 15:10 UTC (KST 00:10). backup.yml(일요일 15:00)과 10분 띄운다.
+    - cron: '10 15 * * *'
+  workflow_dispatch:  # 수동 실행
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check models are alive
+        env:
+          DEBUG: 'True'
+          # 여기서는 진짜 키를 쓴다. 모델이 실제로 응답하는지가 검사 대상이다.
+          # 키가 없으면 skip이 아니라 실패시킨다. 시크릿을 빠뜨렸을 때
+          # 헬스체크가 조용히 초록으로 통과하면 검사의 의미가 없다.
+          HEALTHCHECK_REQUIRE_KEYS: '1'
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          TAVILY_API_KEY: dummy-not-used
+        # DB가 필요 없다. 모델 상수를 import해서 API만 부른다.
+        run: pytest -m healthcheck -v

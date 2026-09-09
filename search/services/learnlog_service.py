@@ -22,16 +22,21 @@ class LearnlogService:
     """
     Learnlog 로직
     - Tavily로 웹 검색
-    - Mistral로 AI 답변 생성
-    - Groq으로 태그 자동 추출
-    - Groq으로 마크다운 변환
+    - Groq으로 AI 답변 생성·마크다운 변환
+    - Groq으로 태그 자동 추출·라우팅·검증
+    - 임베딩만 Mistral (mistral-embed는 살아 있고 대체 모델의 차원이 다르다)
     """
 
-    ANSWER_MODEL = "mistral-large-latest"
-    LIGHT_MODEL = "llama-3.3-70b-versatile"
+    # 2026-09 교체: mistral-large 은퇴(403), mistral-small 무료티어 제외(429),
+    # llama-3.3-70b-versatile 폐기(404)로 임베딩 외 전부 멈춰 있었다.
+    # 무거운 생성과 짧은 작업을 나누는 이유: gpt-oss는 답하기 전 추론 토큰을 쓴다.
+    # max_tokens 40/50/120에서 빈 문자열이 오지만 qwen은 6~12토큰만 쓰고 답한다(실측).
+    ANSWER_MODEL = "openai/gpt-oss-120b"      # 답변 생성 + 마크다운 변환(장문)
+    LIGHT_MODEL = "qwen/qwen3.8-27b"          # 라우팅·검색어·태그·모순검증(짧은 출력)
     EMBED_MODEL = "mistral-embed"  # 1024차원
 
     def __init__(self):
+        # 임베딩 전용. 답변 생성은 Groq으로 옮겼다.
         self.mistral_client = Mistral(
             api_key=settings.MISTRAL_API_KEY,
             timeout_ms=120_000,
@@ -217,7 +222,10 @@ class LearnlogService:
     def check_consistency(self, ai_response, retrieved_logs=None, retrieved_limit=500, search_results=None):
         """
         답변이 제공된 컨텍스트와 모순되는지 LLM Judge로 판정만 한다 (저장 없음).
-        Judge는 Groq(생성 모델 Mistral과 다른 계열)라 교차 검증 효과가 있다.
+        Judge(LIGHT_MODEL)는 생성 모델(ANSWER_MODEL)과 다른 모델이라
+        생성이 저지른 실수를 그대로 통과시킬 확률이 낮다.
+        다만 이건 사실 검증이 아니다 — 답변이 "주어진 컨텍스트"와 어긋나는지만 본다.
+        컨텍스트 자체가 틀렸다면 그 틀림은 잡지 못한다.
         반환: {'consistent': bool, 'note': str} — 컨텍스트가 없으면 None.
         판정 실패는 예외로 올린다 (호출자가 미검증 처리).
         """
@@ -417,7 +425,7 @@ class LearnlogService:
 
     def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500, meta=None):
         """
-        Mistral API 스트리밍 답변 생성 — 토큰 단위로 yield.
+        Groq API 스트리밍 답변 생성 — 토큰 단위로 yield.
         meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
         ('length'면 max_tokens 잘림 — 호출자가 잘림 플래그에 사용).
         실패는 예외로 전파한다 — 에러 문구를 토큰처럼 내보내면
@@ -426,19 +434,22 @@ class LearnlogService:
         prompt = self._build_answer_prompt(query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit)
 
         try:
-            stream = self.mistral_client.chat.stream(
+            # max_tokens 3000: gpt-oss는 서술이 길어 2000이면 매번 잘렸다.
+            # 실측으로 완결에 약 2,500 토큰이 필요했고, 상한이라 실제 소비는 늘지 않는다.
+            stream = self.groq_client.chat.completions.create(
                 model=self.ANSWER_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=3000,
+                stream=True,
             )
-            for event in stream:
-                choice = event.data.choices[0]
+            for chunk in stream:
+                choice = chunk.choices[0]
                 if meta is not None and choice.finish_reason:
                     meta['finish_reason'] = str(choice.finish_reason)
-                chunk = choice.delta.content
-                if chunk:
-                    yield chunk
+                piece = choice.delta.content
+                if piece:
+                    yield piece
         except Exception as e:
             print(f"AI 답변 스트리밍 오류: {e}")
             raise
@@ -536,8 +547,10 @@ class LearnlogService:
         """).strip()
 
         try:
+            # 답변 전문을 재포맷하므로 출력이 입력보다 짧아질 수 없다.
+            # LIGHT_MODEL(qwen)은 분당 출력 1000 제한이라 2000 요청이 거부된다 → 무거운 쪽을 쓴다.
             response = self.groq_client.chat.completions.create(
-                model=self.LIGHT_MODEL,
+                model=self.ANSWER_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=2000

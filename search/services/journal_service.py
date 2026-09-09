@@ -14,7 +14,8 @@ class JournalService:
     cron 없는 환경(Render Free)이라 자정 이후 첫 방문 시점에 lazy 생성한다.
     """
 
-    LIGHT_MODEL = "llama-3.3-70b-versatile"  # 요약은 경량 작업 → Groq
+    # 짧은 평문 요약(150토큰). gpt-oss는 추론 토큰 때문에 이 예산에서 빈 문자열이 온다.
+    LIGHT_MODEL = "qwen/qwen3.8-27b"  # 요약은 경량 작업 → Groq
 
     def __init__(self):
         self.groq_client = Groq(api_key=settings.GROQ_API_KEY)

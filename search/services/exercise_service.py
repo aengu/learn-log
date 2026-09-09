@@ -1,7 +1,7 @@
 import json
 import textwrap
 
-from mistralai.client import Mistral
+from groq import Groq
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
@@ -16,13 +16,13 @@ class ExerciseService:
     - path_trace: 인덱스 매칭 (JS 즉시 피드백 + 서버 저장)
     """
 
-    MODEL = "mistral-small-latest"
+    # 출제(JSON 생성)는 무거운 모델, 짧은 평문 코멘트는 가벼운 모델.
+    # gpt-oss는 답하기 전 추론 토큰을 쓴다 — max_tokens=120에서는 빈 문자열이 온다(실측).
+    MODEL = "openai/gpt-oss-120b"
+    LIGHT_MODEL = "qwen/qwen3.8-27b"
 
     def __init__(self):
-        self.mistral_client = Mistral(
-            api_key=settings.MISTRAL_API_KEY,
-            timeout_ms=120_000,
-        )
+        self.client = Groq(api_key=settings.GROQ_API_KEY)
 
     # ── 생성 ──────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ class ExerciseService:
             - 학습자가 본인 답에 포함됐는지 yes/no로 판단할 수 있는 단위
             - 3~5개
         """).strip()
-        return self._call_mistral_json(prompt)
+        return self._call_json(prompt)
 
     PATH_TRACE_MIN_STEPS = 3   # 최소 통과 step 수 (미달 시 재생성 시도)
 
@@ -156,7 +156,7 @@ class ExerciseService:
         raw step 수도 같이 반환해 호출자가 "환각 발생 여부"(통과 < raw)를 판정할 수 있게 한다.
         """
         try:
-            raw = self._call_mistral_json(prompt)
+            raw = self._call_json(prompt)
         except (json.JSONDecodeError, ValueError):
             return {'steps': []}, 0
         raw_count = len(raw.get('steps', []))
@@ -279,17 +279,21 @@ class ExerciseService:
         content['_audit'] = {'raw_count': len(raw), 'dropped': dropped}
         return ExerciseService._apply_quality_gates(content)
 
-    def _call_mistral_json(self, prompt):
+    def _call_json(self, prompt):
         """
-        Mistral에 JSON 응답을 요청한다.
+        JSON 응답을 요청한다.
         response_format=json_object가 모델 레벨에서 valid JSON을 보장하므로
         별도의 코드 펜스 처리 없이 바로 json.loads로 파싱한다.
+        (Groq은 이 옵션을 쓸 때 프롬프트에 'json'이라는 단어가 있어야 한다.)
+
+        max_tokens는 3000. gpt-oss는 서술이 길어 2000에서 JSON이 잘리는 일이 있었고,
+        잘리면 파싱이 실패해 step이 통째로 날아간다. 상한일 뿐이라 실제 소비는 늘지 않는다.
         """
-        response = self.mistral_client.chat.complete(
+        response = self.client.chat.completions.create(
             model=self.MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            max_tokens=2000,
+            max_tokens=3000,
             response_format={"type": "json_object"},
         )
         return json.loads(response.choices[0].message.content)
@@ -362,8 +366,8 @@ class ExerciseService:
             ⚠️ 1~2문장, 부드럽고 구체적으로. JSON 아닌 평문으로만 응답.
         """).strip()
         try:
-            response = self.mistral_client.chat.complete(
-                model=self.MODEL,
+            response = self.client.chat.completions.create(
+                model=self.LIGHT_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.6,
                 max_tokens=120,

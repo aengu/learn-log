@@ -16,7 +16,7 @@ from groq import Groq
 
 # ── 설정 ───────────────────────────────────────────────────────────
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b"   # 2026-09: llama-3.3-70b-versatile은 Groq에서 폐기(404)
 TEMPERATURE = 0.4
 MAX_TOKENS = 1500
 

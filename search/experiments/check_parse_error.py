@@ -71,7 +71,7 @@ for i in range(N):
 
     # response_format 일부러 빼고 호출 (노트 시점 재현)
     try:
-        response = svc.mistral_client.chat.complete(
+        response = svc.client.chat.completions.create(
             model=svc.MODEL,
             messages=[{"role": "user", "content": PROMPT}],
             temperature=0.4,
