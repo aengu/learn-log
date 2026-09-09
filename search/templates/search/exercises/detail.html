@@ -59,12 +59,14 @@
                         </p>
                         <p class="mb-4">{{ step.question }}</p>
                         <div class="flex flex-col gap-2">
-                            {% for choice in step.choices %}
+                            {# pair = (원본 인덱스, 보기 텍스트). 화면 순서는 섞이지만
+                               data-choice에는 원본 인덱스를 실어 서버 채점을 그대로 유지한다. #}
+                            {% for pair in step.shuffled %}
                             <button class="btn btn-outline justify-start text-left choice-btn"
-                                    data-choice="{{ forloop.counter0 }}"
+                                    data-choice="{{ pair.0 }}"
                                     onclick="selectChoice(this)">
                                 <span class="font-mono mr-2">{{ forloop.counter0|add:"0"|stringformat:"c" }}</span>
-                                {{ choice }}
+                                {{ pair.1 }}
                             </button>
                             {% endfor %}
                         </div>
@@ -137,14 +139,16 @@ function selectChoice(btn) {
     selectedIndices[stepIdx] = choiceIdx;
 
     // 모든 버튼을 순회하며 색상 표시
-    stepCard.querySelectorAll('.choice-btn').forEach((b, i) => {
-        // i: 현재 순회 중인 버튼의 인덱스 (0, 1, 2, 3 순서대로)
+    stepCard.querySelectorAll('.choice-btn').forEach((b) => {
+        // 보기는 매 요청 섞여 그려지므로 DOM 순회 위치로 정답을 판단하면 안 된다.
+        // data-choice에 실린 원본 인덱스로 비교해야 엉뚱한 버튼이 초록으로 칠해지지 않는다.
+        const btnIdx = parseInt(b.dataset.choice);
         b.disabled = true;
-        if (i === correctIdx) {
+        if (btnIdx === correctIdx) {
             // 정답 버튼 → 초록 (사용자가 선택했든 안 했든)
             b.classList.remove('btn-outline');
             b.classList.add('btn-success');
-        } else if (i === choiceIdx && choiceIdx !== correctIdx) {
+        } else if (btnIdx === choiceIdx && choiceIdx !== correctIdx) {
             // 사용자가 선택한 오답 버튼 → 빨강
             b.classList.remove('btn-outline');
             b.classList.add('btn-error');
