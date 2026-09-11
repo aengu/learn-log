@@ -546,17 +546,33 @@ class LearnlogService:
             출력:
         """).strip()
 
+        # 변환에 실패했을 때 돌려줄 원문 기반 포맷. 답변 전문이 보존된다.
+        fallback = f"## {query}\n\n{answer}\n\n## 참고 자료\n{refs}"
+
         try:
             # 답변 전문을 재포맷하므로 출력이 입력보다 짧아질 수 없다.
+            # 그래서 예산도 답변(3000)보다 커야 한다. 실측: 긴 답변 변환에 2,212토큰,
+            # 2000으로 두면 정확히 2000에서 잘려 끝이 끊긴 마크다운이 저장됐다.
             # LIGHT_MODEL(qwen)은 분당 출력 1000 제한이라 2000 요청이 거부된다 → 무거운 쪽을 쓴다.
             response = self.groq_client.chat.completions.create(
                 model=self.ANSWER_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
-                max_tokens=2000
+                max_tokens=4000
             )
-            return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"마크다운 변환 오류: {e}")
-            # 실패 시 기본 포맷
-            return f"## {query}\n\n{answer}\n\n## 참고 자료\n{refs}"
+            return fallback
+
+        choice = response.choices[0]
+        content = (choice.message.content or "").strip()
+
+        # 잘린 응답은 예외가 아니라 정상 200으로 온다. 그대로 반환하면
+        # 끝이 끊긴 마크다운이 저장되고, is_truncated는 답변 것이라 표시도 안 남는다.
+        # 예산을 올려도 더 긴 답변에서 다시 걸릴 수 있으므로 안전망을 둔다.
+        if not content or str(choice.finish_reason) == "length":
+            print(f"마크다운 변환 불완전(finish_reason={choice.finish_reason}, "
+                  f"{len(content)}자) — 원문 포맷으로 대체")
+            return fallback
+
+        return content
