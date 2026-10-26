@@ -3,6 +3,11 @@
 .claude
 __pycache__/
 *.pyc
+.pytest_cache/
+.coverage
+coverage.xml
+pytest.xml
+htmlcov/
 *.sqlite3
 db.sqlite3
 

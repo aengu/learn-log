@@ -7,6 +7,10 @@ on:
     branches: [master]
   workflow_dispatch:  # 수동 실행
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -31,12 +35,12 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           DEBUG: 'True'
           DATABASE_HOST: localhost
@@ -44,4 +48,34 @@ jobs:
           GROQ_API_KEY: dummy-for-ci
           MISTRAL_API_KEY: dummy-for-ci
           TAVILY_API_KEY: dummy-for-ci
-        run: pytest
+        run: >-
+          pytest
+          --junitxml=pytest.xml
+          --cov=search
+          --cov-branch
+          --cov-report=term-missing
+          --cov-report=xml:coverage.xml
+
+      - name: Add coverage to job summary
+        if: always()
+        run: |
+          echo "## LearnLog coverage report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Branch coverage is included." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Coverage report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment coverage on pull request
+        if: >-
+          always() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: MishaKav/pytest-coverage-comment@v1.12.5
+        with:
+          title: LearnLog coverage report
+          pytest-xml-coverage-path: ./coverage.xml
+          junitxml-path: ./pytest.xml
+          show-failed-tests: true

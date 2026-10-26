@@ -1,0 +1,11 @@
+[run]
+branch = True
+source = search
+omit =
+    search/migrations/*
+    search/tests/*
+    search/experiments/*
+
+[report]
+show_missing = True
+skip_empty = True
