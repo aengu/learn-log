@@ -3,11 +3,10 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from django.shortcuts import render
 from django.views import View
-from django.http import StreamingHttpResponse, HttpResponse, JsonResponse
+from django.http import StreamingHttpResponse, HttpResponse
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from django.core.paginator import Paginator
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status

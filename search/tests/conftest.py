@@ -1,6 +1,5 @@
 import pytest
 from rest_framework.test import APIClient
-from search.tests.factories import TagFactory, LearningLogFactory
 
 
 @pytest.fixture

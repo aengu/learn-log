@@ -40,6 +40,24 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Run Ruff
+        run: ruff check --output-format=github .
+
+      - name: Add Ruff to job summary
+        if: always()
+        run: |
+          echo "## Ruff static analysis" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if ruff check --statistics . > ruff-summary.txt 2>&1; then
+            echo "✅ All checks passed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Ruff found issues." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat ruff-summary.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Run tests with coverage
         env:
           DEBUG: 'True'

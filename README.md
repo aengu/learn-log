@@ -123,6 +123,7 @@ docker compose up -d                              # 로컬 실행
 docker compose exec web pytest                    # 테스트
 docker compose exec web pytest --cov=search --cov-branch --cov-report=term-missing  # 커버리지 cli용
 docker compose exec web pytest --cov=search --cov-branch --cov-report=html # 커버리지 html용
+docker compose exec web ruff check .              # 정적 분석
 docker compose exec web python manage.py migrate  # 마이그레이션
 docker compose exec web python manage.py dbpull   # Render → 로컬 DB 동기화
 ```

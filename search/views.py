@@ -1,6 +1,5 @@
 import json
 import random
-from collections import defaultdict
 from datetime import timedelta
 
 from django.db.models import Count
@@ -57,10 +56,6 @@ class LogListView(View):
             'search_query': q,
             'has_next': page.has_next(),
             'next_page': page_num + 1,
-            'current_sort': sort,
-            'search_query': q,
-            'active_tags': tags,
-            'active_tags_str': tag_param,
             'bookmarked': bookmarked,
         }
 

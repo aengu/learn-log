@@ -1,0 +1,10 @@
+target-version = "py312"
+extend-exclude = [
+    "benchmarks",
+    "search/experiments",
+    "search/migrations",
+]
+
+[lint]
+# Pyflakes: undefined names, unused imports, duplicate dictionary keys, etc.
+select = ["F"]

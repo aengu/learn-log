@@ -3,7 +3,6 @@ import os
 import threading
 import urllib.request
 
-from django.apps import AppConfig
 
 
 class SearchConfig(AppConfig):

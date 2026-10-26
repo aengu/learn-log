@@ -2,7 +2,6 @@
 import os
 import subprocess
 import tempfile
-from urllib.parse import urlparse
 
 from django.core.management.base import BaseCommand, CommandError
 
