@@ -332,9 +332,13 @@ class ExerciseService:
         AI 호출 없음. ai_feedback 필드에는 reflection(있을 경우)을 저장한다.
         """
         key_points = exercise.content.get('key_points', [])
-        total = max(len(key_points), 1)
-        # 범위 정규화: 0 <= i < total
-        covered = [i for i in user_answer.get('covered_indices', []) if 0 <= i < total]
+        key_point_count = len(key_points)
+        total = max(key_point_count, 1)
+        # 범위 밖 인덱스와 중복 체크는 점수에 포함하지 않는다.
+        covered = {
+            i for i in user_answer.get('covered_indices', [])
+            if isinstance(i, int) and 0 <= i < key_point_count
+        }
         score = len(covered) / total
         return {
             'is_correct': score >= 0.6,

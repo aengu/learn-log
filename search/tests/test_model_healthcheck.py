@@ -1,4 +1,4 @@
-"""실제 LLM 모델이 살아 있는지 검사한다. 기본 실행에서는 제외된다(-m "not healthcheck").
+"""실제 외부 AI API가 살아 있는지 검사한다. 기본 실행에서는 제외된다(-m "not healthcheck").
 
 왜 별도로 두는가:
   다른 테스트는 LLM 호출을 전부 모킹한다. 그래야 코드 로직을 외부 서비스 상태와
@@ -41,6 +41,7 @@ def _require(name):
     pytest.skip(msg)
 from groq import Groq
 from mistralai.client import Mistral
+from tavily import TavilyClient
 
 from search.services.exercise_service import ExerciseService
 from search.services.journal_service import JournalService
@@ -124,4 +125,27 @@ def test_임베딩_모델이_살아있고_차원이_맞다():
     assert len(vector) == 1024, (
         f"{LearnlogService.EMBED_MODEL}: 차원이 {len(vector)}다. "
         f"search/models.py의 VectorField(dimensions=1024)와 어긋난다."
+    )
+
+
+def test_tavily가_유효한_검색_결과를_돌려준다():
+    """실제 검색 요청으로 키와 Tavily 응답 스키마를 함께 확인한다."""
+    response = TavilyClient(api_key=_require("TAVILY_API_KEY")).search(
+        query="Python list comprehension official documentation",
+        search_depth="basic",
+        max_results=1,
+        include_domains=["docs.python.org"],
+    )
+    results = response.get("results") if isinstance(response, dict) else None
+
+    assert isinstance(results, list) and results, (
+        "Tavily가 성공 응답을 보냈지만 results가 비어 있거나 배열이 아니다."
+    )
+    first = results[0]
+    assert isinstance(first, dict), "Tavily 검색 결과 항목이 객체가 아니다."
+    assert str(first.get("url", "")).startswith(("http://", "https://")), (
+        "Tavily 검색 결과에 유효한 url이 없다."
+    )
+    assert str(first.get("content", "")).strip(), (
+        "Tavily 검색 결과의 content가 비어 있다."
     )
