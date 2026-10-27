@@ -11,8 +11,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import LearningLog, Exercise, ExerciseAttempt, DailyJournal
-from .services import LearnlogService, ExerciseService, JournalService, build_search_agent
+from .models import LearningLog, Exercise, ExerciseAttempt, MateAttempt, DailyJournal
+from .services import (
+    ExerciseService,
+    JournalService,
+    LearningMateService,
+    LearnlogService,
+    build_search_agent,
+)
 from .services.learnlog_service import RETRIEVED_LIMIT_NO_WEB, RETRIEVED_LIMIT_WEB
 from .serializers import LearningLogUpdateSerializer
 
@@ -287,16 +293,88 @@ class ExerciseAttemptAPIView(View):
     @staticmethod
     def _finalize(request, exercise, user_answer):
         try:
+            mate_attempt = None
+            mate_attempt_pk = request.POST.get('mate_attempt_id', '').strip()
+            if mate_attempt_pk and exercise.exercise_type == 'path_trace':
+                mate_attempt = MateAttempt.objects.select_related('user_attempt').filter(
+                    pk=mate_attempt_pk,
+                    exercise=exercise,
+                ).first()
+
+            # HTMX 재요청·중복 클릭은 같은 대결의 기존 결과를 반환한다.
+            # 새 ExerciseAttempt 생성과 복습 주기 중복 갱신을 막는다.
+            if mate_attempt and mate_attempt.user_attempt_id:
+                attempt = mate_attempt.user_attempt
+                return render(request, 'search/partials/exercise_result.html', {
+                    'exercise': exercise,
+                    'attempt': attempt,
+                    'evaluation': {
+                        'is_correct': attempt.is_correct,
+                        'score': attempt.score,
+                        'ai_feedback': attempt.ai_feedback,
+                    },
+                    'mate_attempt': mate_attempt,
+                    'mate_comparison_rows': LearningMateService.comparison_rows(
+                        mate_attempt
+                    ),
+                })
+
             service = ExerciseService()
             evaluation = service.evaluate_attempt(exercise, user_answer)
             attempt = service.save_attempt(exercise, user_answer, evaluation)
+            if mate_attempt:
+                mate_attempt.user_attempt = attempt
+                mate_attempt.save(update_fields=['user_attempt'])
+                mate_attempt.refresh_from_db()
             return render(request, 'search/partials/exercise_result.html', {
                 'exercise': exercise,
                 'attempt': attempt,
                 'evaluation': evaluation,
+                'mate_attempt': mate_attempt,
+                'mate_comparison_rows': (
+                    LearningMateService.comparison_rows(mate_attempt)
+                    if mate_attempt else []
+                ),
             })
         except Exception as e:
             return HttpResponse(f'<div class="alert alert-error">채점 오류: {e}</div>')
+
+
+class MateAttemptSolveAPIView(View):
+    """러닝메이트 풀이. 문제 화면이 열리면 HTMX가 별도 요청으로 호출한다."""
+
+    def post(self, request, pk):
+        try:
+            mate_attempt = MateAttempt.objects.select_related(
+                'exercise', 'exercise__learning_log'
+            ).get(pk=pk)
+        except MateAttempt.DoesNotExist:
+            return HttpResponse(
+                '<div class="text-sm text-warning">러닝메이트 풀이를 시작하지 못했어요.</div>'
+            )
+
+        mate_attempt = LearningMateService().solve_attempt(mate_attempt)
+        return render(request, 'search/partials/mate_solve_status.html', {
+            'mate_attempt': mate_attempt,
+        })
+
+
+class MateAttemptResultAPIView(View):
+    """사용자 제출 후 러닝메이트 풀이 완료를 폴링하고 비교한다."""
+
+    def get(self, request, pk):
+        try:
+            mate_attempt = MateAttempt.objects.select_related(
+                'exercise', 'user_attempt'
+            ).get(pk=pk)
+        except MateAttempt.DoesNotExist:
+            return HttpResponse(
+                '<div class="alert alert-warning">러닝메이트 결과를 찾을 수 없어요.</div>'
+            )
+        return render(request, 'search/partials/mate_comparison.html', {
+            'mate_attempt': mate_attempt,
+            'mate_comparison_rows': LearningMateService.comparison_rows(mate_attempt),
+        })
 
 
 class ExerciseCoachAPIView(View):

@@ -49,6 +49,19 @@
                 <h2 class="card-title text-lg mb-2">경로 추적</h2>
                 <p class="text-base-content/70 mb-6">{{ exercise.content.scenario }}</p>
 
+                {% if mate_attempt %}
+                <div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3">
+                    <form hx-post="{% url 'search:mate_attempt_solve' mate_attempt.pk %}"
+                          hx-trigger="load"
+                          hx-target="#mate-solve-status"
+                          hx-swap="outerHTML">
+                        {% csrf_token %}
+                        <span class="loading loading-dots loading-sm"></span>
+                        <span class="text-sm">러닝메이트도 같은 문제를 푸는 중이에요.</span>
+                    </form>
+                </div>
+                {% endif %}
+
                 <div id="steps-container">
                     {% for step in exercise.content.steps %}
                     <div class="step-card mb-6 {% if not forloop.first %}hidden{% endif %}"
@@ -59,8 +72,10 @@
                         </p>
                         <p class="mb-4">{{ step.question }}</p>
                         <div class="flex flex-col gap-2">
-                            {# pair = (원본 인덱스, 보기 텍스트). 화면 순서는 섞이지만
-                               data-choice에는 원본 인덱스를 실어 서버 채점을 그대로 유지한다. #}
+                            {% comment %}
+                            pair = (원본 인덱스, 보기 텍스트). 화면 순서는 섞이지만
+                            data-choice에는 원본 인덱스를 실어 서버 채점을 그대로 유지한다.
+                            {% endcomment %}
                             {% for pair in step.shuffled %}
                             <button class="btn btn-outline justify-start text-left choice-btn"
                                     data-choice="{{ pair.0 }}"
@@ -87,9 +102,13 @@
                     <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
                           hx-target="#result-area"
                           hx-swap="innerHTML"
-                          hx-indicator="#submit-indicator">
+                          hx-indicator="#submit-indicator"
+                          hx-disabled-elt="button[type='submit']">
                         {% csrf_token %}
                         <input type="hidden" name="selected_indices" id="selected-indices-input" value="[]">
+                        {% if mate_attempt %}
+                        <input type="hidden" name="mate_attempt_id" value="{{ mate_attempt.pk }}">
+                        {% endif %}
                         <div class="flex items-center gap-3">
                             <button type="submit" class="btn btn-primary">결과 저장하기</button>
                             <span id="submit-indicator" class="htmx-indicator loading loading-spinner loading-sm"></span>

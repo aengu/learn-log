@@ -1,0 +1,60 @@
+<div id="mate-comparison"
+     {% if mate_attempt.status == 'pending' or mate_attempt.status == 'solving' %}
+     hx-get="{% url 'search:mate_attempt_result' mate_attempt.pk %}"
+     hx-trigger="load delay:1s"
+     hx-swap="outerHTML"
+     {% endif %}>
+    {% if mate_attempt.status == 'ready' and mate_attempt.user_attempt %}
+    <div class="flex items-center justify-between gap-4 mb-4">
+        <div>
+            <p class="text-xs text-base-content/50">나</p>
+            <p class="text-2xl font-bold">{% widthratio mate_attempt.user_attempt.score 1 100 %}점</p>
+        </div>
+        <div class="text-center">
+            {% if mate_attempt.user_attempt.score > mate_attempt.score %}
+            <span class="badge badge-success">내가 앞섰어요</span>
+            {% elif mate_attempt.user_attempt.score < mate_attempt.score %}
+            <span class="badge badge-warning">러닝메이트가 앞서요</span>
+            {% else %}
+            <span class="badge badge-ghost">무승부예요</span>
+            {% endif %}
+        </div>
+        <div class="text-right">
+            <p class="text-xs text-base-content/50">러닝메이트</p>
+            <p class="text-2xl font-bold">{% widthratio mate_attempt.score 1 100 %}점</p>
+        </div>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Step</th>
+                    <th>나의 선택</th>
+                    <th>러닝메이트의 선택</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in mate_comparison_rows %}
+                <tr>
+                    <th>{{ row.number }}</th>
+                    <td class="{% if row.user_correct %}text-success{% else %}text-error{% endif %}">
+                        {% if row.user_correct %}✓{% else %}✗{% endif %} {{ row.user_choice }}
+                    </td>
+                    <td class="{% if row.mate_correct %}text-success{% else %}text-error{% endif %}">
+                        {% if row.mate_correct %}✓{% else %}✗{% endif %} {{ row.mate_choice }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif mate_attempt.status == 'failed' %}
+    <div class="alert alert-warning">이번에는 러닝메이트의 결과를 비교하지 못했어요.</div>
+    {% else %}
+    <div class="flex items-center gap-2 text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span>러닝메이트의 답을 채점하고 있어요.</span>
+    </div>
+    {% endif %}
+</div>

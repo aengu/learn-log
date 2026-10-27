@@ -6,8 +6,8 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from search.models import Exercise, ExerciseAttempt
-from search.services import ExerciseService
+from search.models import Exercise, ExerciseAttempt, MateAttempt
+from search.services import ExerciseService, LearningMateService
 
 from .factories import LearningLogFactory
 
@@ -71,6 +71,7 @@ class TestExercisePages:
         response = client.get(reverse("search:exercise_detail", args=[exercise.pk]))
 
         assert response.status_code == 200
+        assert "{# pair" not in response.content.decode()
         rendered_exercise = response.context["exercise"]
         assert rendered_exercise.content["steps"][0]["shuffled"] == [
             (3, "Database"),
@@ -80,6 +81,7 @@ class TestExercisePages:
         ]
         exercise.refresh_from_db()
         assert exercise.content == original_content
+        assert MateAttempt.objects.filter(exercise=exercise, status="pending").count() == 1
 
     def test_generation_detail_does_not_add_shuffled_choices(self, client):
         exercise = make_exercise()
@@ -192,6 +194,55 @@ class TestExerciseAttemptAPI:
         assert attempt.score == pytest.approx(2 / 3)
         assert exercise.review_interval == 3
 
+    def test_path_trace_links_the_mate_attempt(self, client):
+        exercise = make_exercise("path_trace")
+        mate_attempt = MateAttempt.objects.create(
+            exercise=exercise,
+            status="ready",
+            answer={"selected_indices": [0, 1, 2]},
+            score=1,
+            is_correct=True,
+        )
+
+        response = client.post(
+            reverse("search:exercise_attempt", args=[exercise.pk]),
+            {
+                "selected_indices": json.dumps([0, 0, 2]),
+                "mate_attempt_id": str(mate_attempt.pk),
+            },
+        )
+
+        mate_attempt.refresh_from_db()
+        assert response.status_code == 200
+        assert mate_attempt.user_attempt is not None
+        assert "러닝메이트" in response.content.decode()
+        assert "100점" in response.content.decode()
+
+    def test_repeated_path_submission_returns_the_original_duel(self, client):
+        exercise = make_exercise("path_trace")
+        mate_attempt = MateAttempt.objects.create(
+            exercise=exercise,
+            status="ready",
+            answer={"selected_indices": [0, 1, 2]},
+            score=1,
+            is_correct=True,
+        )
+        url = reverse("search:exercise_attempt", args=[exercise.pk])
+        payload = {
+            "selected_indices": json.dumps([0, 0, 2]),
+            "mate_attempt_id": str(mate_attempt.pk),
+        }
+
+        first = client.post(url, payload)
+        second = client.post(url, payload)
+
+        mate_attempt.refresh_from_db()
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert ExerciseAttempt.objects.filter(exercise=exercise).count() == 1
+        assert "러닝메이트" in second.content.decode()
+        assert mate_attempt.user_attempt_id is not None
+
     def test_reveal_returns_answer_and_model_answer(self, client):
         exercise = make_exercise()
 
@@ -266,6 +317,48 @@ class TestExerciseAttemptAPI:
         assert response.status_code == 200
         assert "채점 오류: 채점기 오류" in response.content.decode()
         assert ExerciseAttempt.objects.count() == 0
+
+
+class TestMateAttemptAPI:
+    def test_solve_endpoint_runs_learning_mate_service(self, client, monkeypatch):
+        exercise = make_exercise("path_trace")
+        mate_attempt = MateAttempt.objects.create(exercise=exercise)
+
+        def fake_solve(service, attempt):
+            attempt.status = "ready"
+            attempt.answer = {"selected_indices": [0, 1, 2]}
+            attempt.score = 1
+            attempt.is_correct = True
+            attempt.save(update_fields=["status", "answer", "score", "is_correct"])
+            return attempt
+
+        monkeypatch.setattr(LearningMateService, "solve_attempt", fake_solve)
+
+        response = client.post(
+            reverse("search:mate_attempt_solve", args=[mate_attempt.pk])
+        )
+
+        mate_attempt.refresh_from_db()
+        assert response.status_code == 200
+        assert mate_attempt.status == "ready"
+        assert "답을 제출" in response.content.decode()
+
+    def test_result_endpoint_returns_failure_without_exposing_error(self, client):
+        exercise = make_exercise("path_trace")
+        mate_attempt = MateAttempt.objects.create(
+            exercise=exercise,
+            status="failed",
+            error_message="secret provider error",
+        )
+
+        response = client.get(
+            reverse("search:mate_attempt_result", args=[mate_attempt.pk])
+        )
+
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert "결과를 비교하지 못했어요" in body
+        assert "secret provider error" not in body
 
 
 class TestExerciseCoachAPI:

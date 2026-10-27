@@ -278,6 +278,67 @@ class ExerciseAttempt(models.Model):
         return f"{self.exercise} - {status}"
 
 
+class MateAttempt(models.Model):
+    """러닝메이트가 path_trace 문제를 풀은 기록.
+
+    러닝메이트는 단일 개체이므로 별도의 Mate 모델을 두지 않는다.
+    user_attempt가 연결되기 전까지 답은 서버에만 보관하고, 사용자 제출 후 공개한다.
+    """
+
+    STATUS_CHOICES = [
+        ('pending', '풀이 대기'),
+        ('solving', '풀이 중'),
+        ('ready', '풀이 완료'),
+        ('failed', '풀이 실패'),
+    ]
+
+    exercise = models.ForeignKey(
+        Exercise,
+        on_delete=models.CASCADE,
+        related_name='mate_attempts',
+        verbose_name="연습문제",
+    )
+    user_attempt = models.OneToOneField(
+        ExerciseAttempt,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='mate_attempt',
+        verbose_name="비교할 사용자 풀이",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+        verbose_name="상태",
+    )
+    answer = models.JSONField(default=dict, blank=True, verbose_name="러닝메이트 답")
+    score = models.FloatField(null=True, blank=True, verbose_name="점수(0~1)")
+    is_correct = models.BooleanField(null=True, blank=True, verbose_name="통과 여부")
+    context_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="수준 추정·샘플링 정보",
+    )
+    model_name = models.CharField(max_length=100, blank=True, verbose_name="풀이 모델")
+    prompt_version = models.CharField(max_length=20, default='v1', verbose_name="프롬프트 버전")
+    error_message = models.TextField(blank=True, verbose_name="오류 메시지")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일")
+    answered_at = models.DateTimeField(null=True, blank=True, verbose_name="풀이 완료일")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "러닝메이트 풀이"
+        verbose_name_plural = "러닝메이트 풀이"
+        indexes = [
+            models.Index(fields=['exercise', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"러닝메이트 - {self.exercise} ({self.get_status_display()})"
+
+
 class Streak(models.Model):
     """
     연속 학습 기록 (싱글턴 — pk=1 하나만 사용).

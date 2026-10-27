@@ -6,6 +6,8 @@ from .api_views import (
     ExerciseGenerateAPIView,
     ExerciseAttemptAPIView,
     ExerciseCoachAPIView,
+    MateAttemptResultAPIView,
+    MateAttemptSolveAPIView,
     JournalPopupAPIView,
     JournalDismissAPIView,
 )
@@ -29,6 +31,8 @@ urlpatterns = [
     # Exercise API
     path('api/exercises/generate/<int:log_pk>/', ExerciseGenerateAPIView.as_view(), name='exercise_generate'),
     path('api/exercises/<int:pk>/attempt/', ExerciseAttemptAPIView.as_view(), name='exercise_attempt'),
+    path('api/mate-attempts/<int:pk>/solve/', MateAttemptSolveAPIView.as_view(), name='mate_attempt_solve'),
+    path('api/mate-attempts/<int:pk>/result/', MateAttemptResultAPIView.as_view(), name='mate_attempt_result'),
     path('api/attempts/<int:pk>/coach/', ExerciseCoachAPIView.as_view(), name='exercise_coach'),
 
     # Journal API

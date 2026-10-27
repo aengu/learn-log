@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views import View
 from django.core.paginator import Paginator
 
-from .models import LearningLog, Exercise, ExerciseAttempt, Streak, DailyJournal
+from .models import LearningLog, Exercise, ExerciseAttempt, MateAttempt, Streak, DailyJournal
 from .services import ExerciseService
 
 
@@ -79,8 +79,14 @@ class ExerciseDetailView(View):
         exercise = get_object_or_404(
             Exercise.objects.select_related('learning_log'), pk=pk
         )
+        mate_attempt = None
+        if exercise.exercise_type == 'path_trace':
+            mate_attempt = MateAttempt.objects.create(exercise=exercise)
         _shuffle_choices_for_display(exercise)
-        return render(request, 'search/exercises/detail.html', {'exercise': exercise})
+        return render(request, 'search/exercises/detail.html', {
+            'exercise': exercise,
+            'mate_attempt': mate_attempt,
+        })
 
 
 def _shuffle_choices_for_display(exercise):
