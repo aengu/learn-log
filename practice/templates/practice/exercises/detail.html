@@ -28,7 +28,7 @@
                 <!-- ── 생성→비교 (1단계: 답 작성) ── -->
                 <h2 class="card-title text-lg mb-4">{{ exercise.content.question }}</h2>
                 <div id="stage-area">
-                    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+                    <form hx-post="{% url 'practice:exercise_attempt' exercise.pk %}"
                           hx-target="#stage-area"
                           hx-swap="outerHTML">
                         {% csrf_token %}
@@ -51,7 +51,7 @@
 
                 {% if mate_attempt %}
                 <div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3">
-                    <form hx-post="{% url 'search:mate_attempt_solve' mate_attempt.pk %}"
+                    <form hx-post="{% url 'practice:mate_attempt_solve' mate_attempt.pk %}"
                           hx-trigger="load"
                           hx-target="#mate-solve-status"
                           hx-swap="outerHTML">
@@ -99,7 +99,7 @@
 
                 <!-- 전체 제출 (모든 스텝 완료 후 표시) -->
                 <div id="submit-area" class="hidden">
-                    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+                    <form hx-post="{% url 'practice:exercise_attempt' exercise.pk %}"
                           hx-target="#result-area"
                           hx-swap="innerHTML"
                           hx-indicator="#submit-indicator"

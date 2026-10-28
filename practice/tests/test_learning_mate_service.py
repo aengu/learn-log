@@ -4,10 +4,10 @@ import random
 
 import pytest
 
-from search.models import Exercise, ExerciseAttempt, MateAttempt
-from search.services.learning_mate_service import LearningMateService
+from practice.models import Exercise, ExerciseAttempt, MateAttempt
+from practice.services.learning_mate_service import LearningMateService
 
-from .factories import LearningLogFactory
+from search.tests.factories import LearningLogFactory
 
 
 pytestmark = pytest.mark.django_db

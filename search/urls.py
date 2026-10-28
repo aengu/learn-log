@@ -1,13 +1,8 @@
 from django.urls import path
-from .views import MainPageView, LogListView, ExerciseListView, ExerciseDetailView, StatsView
+from .views import MainPageView, LogListView, StatsView
 from .api_views import (
     QuerySSEView,
     LogDetailAPIView,
-    ExerciseGenerateAPIView,
-    ExerciseAttemptAPIView,
-    ExerciseCoachAPIView,
-    MateAttemptResultAPIView,
-    MateAttemptSolveAPIView,
     JournalPopupAPIView,
     JournalDismissAPIView,
 )
@@ -18,8 +13,6 @@ urlpatterns = [
     # 페이지
     path('', MainPageView.as_view(), name='main'),
     path('logs/', LogListView.as_view(), name='log_list'),
-    path('exercises/', ExerciseListView.as_view(), name='exercise_list'),
-    path('exercises/<int:pk>/', ExerciseDetailView.as_view(), name='exercise_detail'),
     path('stats/', StatsView.as_view(), name='stats'),
 
     # Query API
@@ -28,12 +21,6 @@ urlpatterns = [
     # Log API
     path('api/logs/<int:pk>/', LogDetailAPIView.as_view(), name='log_detail_api'),
 
-    # Exercise API
-    path('api/exercises/generate/<int:log_pk>/', ExerciseGenerateAPIView.as_view(), name='exercise_generate'),
-    path('api/exercises/<int:pk>/attempt/', ExerciseAttemptAPIView.as_view(), name='exercise_attempt'),
-    path('api/mate-attempts/<int:pk>/solve/', MateAttemptSolveAPIView.as_view(), name='mate_attempt_solve'),
-    path('api/mate-attempts/<int:pk>/result/', MateAttemptResultAPIView.as_view(), name='mate_attempt_result'),
-    path('api/attempts/<int:pk>/coach/', ExerciseCoachAPIView.as_view(), name='exercise_coach'),
 
     # Journal API
     path('api/journal/popup/', JournalPopupAPIView.as_view(), name='journal_popup'),

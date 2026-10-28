@@ -12,7 +12,7 @@
     </div>
 
     <!-- 자가 마킹 체크리스트 -->
-    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+    <form hx-post="{% url 'practice:exercise_attempt' exercise.pk %}"
           hx-target="#stage-area"
           hx-swap="outerHTML"
           onsubmit="return confirmSelfMark(this)">

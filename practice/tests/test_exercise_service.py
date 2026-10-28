@@ -5,10 +5,10 @@ from copy import deepcopy
 import pytest
 from django.utils import timezone
 
-from search.models import Exercise
-from search.services.exercise_service import ExerciseService
+from practice.models import Exercise
+from practice.services.exercise_service import ExerciseService
 
-from .factories import LearningLogFactory
+from search.tests.factories import LearningLogFactory
 
 
 pytestmark = pytest.mark.django_db

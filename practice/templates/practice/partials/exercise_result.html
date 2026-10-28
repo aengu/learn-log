@@ -55,7 +55,7 @@
 
         {% if exercise.exercise_type == 'path_trace' and mate_attempt %}
         <div class="divider my-2"></div>
-        {% include 'search/partials/mate_comparison.html' %}
+        {% include 'practice/partials/mate_comparison.html' %}
         {% endif %}
 
         {% if exercise.exercise_type != 'path_trace' %}
@@ -63,7 +63,7 @@
         <div class="divider my-2"></div>
         <div id="coach-area">
             <button class="btn btn-sm btn-outline btn-info"
-                    hx-post="{% url 'search:exercise_coach' attempt.pk %}"
+                    hx-post="{% url 'practice:exercise_coach' attempt.pk %}"
                     hx-target="#coach-area"
                     hx-swap="innerHTML"
                     hx-disabled-elt="this">
@@ -75,8 +75,8 @@
 
         <!-- 액션 버튼 -->
         <div class="flex gap-3 mt-4">
-            <a href="{% url 'search:exercise_list' %}" class="btn btn-sm btn-ghost">복습 목록으로</a>
-            <a href="{% url 'search:exercise_detail' exercise.pk %}" class="btn btn-sm btn-outline">다시 풀기</a>
+            <a href="{% url 'practice:exercise_list' %}" class="btn btn-sm btn-ghost">복습 목록으로</a>
+            <a href="{% url 'practice:exercise_detail' exercise.pk %}" class="btn btn-sm btn-outline">다시 풀기</a>
         </div>
     </div>
 </div>

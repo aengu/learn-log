@@ -70,6 +70,7 @@ jobs:
           pytest
           --junitxml=pytest.xml
           --cov=search
+          --cov=practice
           --cov-branch
           --cov-report=term-missing
           --cov-report=xml:coverage.xml

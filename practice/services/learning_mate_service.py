@@ -9,7 +9,9 @@ from django.utils import timezone
 from groq import Groq
 from pgvector.django import CosineDistance
 
-from ..models import ExerciseAttempt, LearningLog, MateAttempt
+from search.models import LearningLog
+
+from ..models import ExerciseAttempt, MateAttempt
 from .exercise_service import ExerciseService
 
 

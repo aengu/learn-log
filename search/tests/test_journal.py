@@ -5,7 +5,8 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from search.models import DailyJournal, Exercise, ExerciseAttempt
+from search.models import DailyJournal
+from practice.models import Exercise, ExerciseAttempt
 from search.services import JournalService
 from .factories import LearningLogFactory
 

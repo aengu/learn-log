@@ -1,6 +1,6 @@
 <div id="mate-comparison"
      {% if mate_attempt.status == 'pending' or mate_attempt.status == 'solving' %}
-     hx-get="{% url 'search:mate_attempt_result' mate_attempt.pk %}"
+     hx-get="{% url 'practice:mate_attempt_result' mate_attempt.pk %}"
      hx-trigger="load delay:1s"
      hx-swap="outerHTML"
      {% endif %}>

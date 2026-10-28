@@ -43,7 +43,7 @@ from groq import Groq
 from mistralai.client import Mistral
 from tavily import TavilyClient
 
-from search.services.exercise_service import ExerciseService
+from practice.services.exercise_service import ExerciseService
 from search.services.journal_service import JournalService
 from search.services.learnlog_service import LearnlogService
 
