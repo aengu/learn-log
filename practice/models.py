@@ -1,8 +1,31 @@
 from django.db import models
+from django.core.validators import RegexValidator
 from django.utils import timezone
 
 
 REVIEW_INTERVALS = [1, 3, 7, 14, 30]
+
+
+class Concept(models.Model):
+    """검토 후 등록한 개념 사전. 새 출제 개념 후보는 문항 JSON에만 보관한다."""
+
+    id = models.CharField(
+        primary_key=True,
+        max_length=100,
+        validators=[RegexValidator(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$', '영문 소문자·숫자·밑줄과 점으로 작성하세요.')],
+        verbose_name="개념 ID",
+    )
+    name = models.CharField(max_length=100, verbose_name="개념명")
+    description = models.CharField(max_length=300, verbose_name="설명")
+    is_active = models.BooleanField(default=True, verbose_name="출제 사용")
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "출제 개념"
+        verbose_name_plural = "출제 개념"
+
+    def __str__(self):
+        return f"{self.name} ({self.pk})"
 
 
 class Exercise(models.Model):
@@ -148,5 +171,4 @@ class MateAttempt(models.Model):
 
     def __str__(self):
         return f"러닝메이트 - {self.exercise} ({self.get_status_display()})"
-
 

@@ -33,7 +33,7 @@
                             <!-- 문제 -->
                             <p class="text-sm text-base-content/60 mt-1 truncate">
                                 {% if ex.exercise_type == 'path_trace' %}
-                                    {{ ex.content.scenario }}
+                                    {{ ex.content.scenario|default:ex.content.steps.0.question }}
                                 {% else %}
                                     {{ ex.content.question }}
                                 {% endif %}

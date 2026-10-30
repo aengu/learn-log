@@ -46,8 +46,10 @@
 
                 {% elif exercise.exercise_type == 'path_trace' %}
                 <!-- ── 경로추적 ── -->
-                <h2 class="card-title text-lg mb-2">경로 추적</h2>
+                <h2 class="card-title text-lg mb-2">선택지 고르기</h2>
+                {% if exercise.content.scenario %}
                 <p class="text-base-content/70 mb-6">{{ exercise.content.scenario }}</p>
+                {% endif %}
 
                 {% if mate_attempt %}
                 <div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3">
