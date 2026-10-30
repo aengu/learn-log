@@ -1,0 +1,8 @@
+{% load bkt_display %}
+<dl class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm my-3">
+    <div><dt class="text-base-content/60">초기 숙련도</dt><dd>{{ parameters.initial_mastery|percent }}</dd></div>
+    <div><dt class="text-base-content/60">실수율</dt><dd>{{ parameters.slip|percent }}</dd></div>
+    <div><dt class="text-base-content/60">추측 정답률</dt><dd>{{ parameters.guess|percent }}</dd></div>
+    <div><dt class="text-base-content/60">학습 전이율</dt><dd>{{ parameters.learn|percent }}</dd></div>
+</dl>
+<p class="text-xs text-base-content/60">데이터로 학습한 값이 아닌 고정 가정값입니다.</p>

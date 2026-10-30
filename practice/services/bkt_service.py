@@ -10,14 +10,15 @@ from .bkt_math import DEFAULT_PARAMETERS, MODEL_VERSION, update_mastery
 
 class BKTService:
     @staticmethod
-    def _eligible_steps(attempt, active_ids):
-        if attempt.exercise.exercise_type != 'path_trace':
+    def approved_steps(exercise, active_ids):
+        """관측과 풀이 전 예측에서 같은 승인·형식 조건을 사용한다."""
+        if exercise.exercise_type != 'path_trace':
             return
-        content, answer = attempt.exercise.content, attempt.user_answer
-        if not isinstance(content, dict) or not isinstance(answer, dict):
+        content = exercise.content
+        if not isinstance(content, dict):
             return
-        steps, selected = content.get('steps'), answer.get('selected_indices')
-        if not isinstance(steps, list) or not isinstance(selected, list):
+        steps = content.get('steps')
+        if not isinstance(steps, list):
             return
         for index, step in enumerate(steps):
             if not isinstance(step, dict):
@@ -36,6 +37,17 @@ class BKTService:
                 continue
             if choices[correct_index] != step.get('correct_answer'):
                 continue
+            yield index, step
+
+    @classmethod
+    def _eligible_steps(cls, attempt, active_ids):
+        if not isinstance(attempt.user_answer, dict):
+            return
+        selected = attempt.user_answer.get('selected_indices')
+        if not isinstance(selected, list):
+            return
+        for index, step in cls.approved_steps(attempt.exercise, active_ids):
+            choices = step['choices']
             # 미응답·범위 밖 선택·bool 값은 오답 관측으로 추정하지 않는다.
             if index >= len(selected) or type(selected[index]) is not int or not 0 <= selected[index] < len(choices):
                 continue

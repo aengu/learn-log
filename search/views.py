@@ -9,6 +9,7 @@ from django.views import View
 from django.core.paginator import Paginator
 
 from practice.models import ExerciseAttempt
+from practice.services.bkt_report import concept_report
 
 from .models import LearningLog, Streak, DailyJournal
 
@@ -158,4 +159,5 @@ class StatsView(View):
             'total_attempts': total_attempts,
             'heatmap_json': json.dumps(heatmap_data),  # 템플릿에서 JS로 전달
         }
+        context.update(concept_report(request.GET.get('concept'), request.GET.get('observation')))
         return render(request, 'search/stats.html', context)

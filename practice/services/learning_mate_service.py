@@ -2,6 +2,7 @@ import json
 import logging
 import random
 import textwrap
+from dataclasses import asdict
 
 from django.conf import settings
 from django.db import DatabaseError
@@ -11,7 +12,9 @@ from pgvector.django import CosineDistance
 
 from search.models import LearningLog
 
-from ..models import ExerciseAttempt, MateAttempt
+from ..models import BKTObservation, Concept, ExerciseAttempt, MateAttempt
+from .bkt_math import DEFAULT_PARAMETERS, MODEL_VERSION
+from .bkt_service import BKTService
 from .exercise_service import ExerciseService
 
 
@@ -21,9 +24,9 @@ logger = logging.getLogger(__name__)
 class LearningMateService:
     """러닝메이트의 path_trace 풀이와 수준 보정.
 
-    LLM은 정답 정보 없이 각 선택지의 가능성을 판단한다. 서버는 사용자의
-    추정 정답 확률과 LLM의 문제별 판단을 혼합해 정답·오답 확률을 맞춘 뒤
-    하나의 선택지를 샘플링한다.
+    LLM은 정답 정보 없이 각 선택지의 가능성을 판단한다. 승인 문항은 사용자
+    BKT로 정답 확률을 정하고, 나머지는 기존 추정과 LLM 판단을 혼합한다.
+    오답 간 비율은 LLM 판단을 유지해 하나의 선택지를 샘플링한다.
     """
 
     MODEL = "qwen/qwen3.8-27b"
@@ -93,9 +96,12 @@ class LearningMateService:
             pass
         return ids
 
-    def estimate_user_probability(self, exercise):
+    def estimate_user_probability(self, exercise, before=None):
+        attempts = ExerciseAttempt.objects.all()
+        if before is not None:
+            attempts = attempts.filter(created_at__lt=before)
         recent_attempts = list(
-            ExerciseAttempt.objects
+            attempts
             .filter(exercise__exercise_type='path_trace')
             .select_related('exercise')
             .order_by('-created_at')[:self.RECENT_ATTEMPT_LIMIT]
@@ -105,7 +111,7 @@ class LearningMateService:
 
         related_log_ids = self._related_log_ids(exercise)
         related_attempts = list(
-            ExerciseAttempt.objects
+            attempts
             .filter(
                 exercise__exercise_type='path_trace',
                 exercise__learning_log_id__in=related_log_ids,
@@ -138,6 +144,39 @@ class LearningMateService:
                 'weight': related_weight,
             },
         }
+
+    @staticmethod
+    def estimate_step_probabilities(exercise, before, fallback):
+        """이번 풀이 전 개념 이력으로 예측한다. 현재 숙련도 캐시는 소급 오염을 피하려고 쓰지 않는다."""
+        results = [
+            {'source': 'heuristic', 'probability': fallback}
+            for _ in exercise.content.get('steps', [])
+        ]
+        active_ids = set(Concept.objects.filter(is_active=True).values_list('pk', flat=True))
+        approved = list(BKTService.approved_steps(exercise, active_ids))
+        concept_ids = {step['concept_id'] for _, step in approved}
+        latest = {}
+        for observation in BKTObservation.objects.filter(
+            concept_id__in=concept_ids, observed_at__lt=before,
+        ).order_by('-observed_at', '-attempt_id', '-step_index'):
+            latest.setdefault(observation.concept_id, observation)
+        parameters = asdict(DEFAULT_PARAMETERS)
+        for index, step in approved:
+            observation = latest.get(step['concept_id'])
+            if observation and (
+                observation.model_version != MODEL_VERSION or observation.parameters != parameters
+            ):
+                results[index]['reason'] = 'bkt_rebuild_required'
+                continue
+            mastery = observation.mastery_after if observation else DEFAULT_PARAMETERS.initial_mastery
+            results[index] = {
+                'source': 'bkt', 'concept_id': step['concept_id'],
+                'mastery': mastery,
+                'probability': mastery * (1 - DEFAULT_PARAMETERS.slip) + (1 - mastery) * DEFAULT_PARAMETERS.guess,
+                'observation_id': observation.pk if observation else None,
+                'parameters': parameters, 'model_version': MODEL_VERSION,
+            }
+        return results
 
     def _request_choice_judgements(self, exercise):
         public_content = self.public_exercise_content(exercise)
@@ -186,13 +225,13 @@ class LearningMateService:
         return [value / total for value in cleaned]
 
     @classmethod
-    def calibrate_distribution(cls, raw, correct_index, user_probability):
-        """정답 확률은 사용자 수준 80% + LLM의 문제별 판단 20%로 설정한다.
+    def calibrate_distribution(cls, raw, correct_index, user_probability, *, bkt=False):
+        """BKT는 예측 확률 그대로, 그 외에는 사용자 수준 80% + LLM 판단 20%.
 
         오답으로 갈 확률은 LLM이 판단한 오답별 그럴듯함에 비례해 나눈다.
         """
         raw_correct = raw[correct_index]
-        correct_probability = (
+        correct_probability = user_probability if bkt else (
             cls.USER_LEVEL_WEIGHT * user_probability
             + (1 - cls.USER_LEVEL_WEIGHT) * raw_correct
         )
@@ -227,7 +266,10 @@ class LearningMateService:
             if exercise.exercise_type != 'path_trace':
                 raise ValueError("러닝메이트는 path_trace만 풀 수 있습니다.")
 
-            ability = self.estimate_user_probability(exercise)
+            ability = self.estimate_user_probability(exercise, before=mate_attempt.created_at)
+            step_abilities = self.estimate_step_probabilities(
+                exercise, mate_attempt.created_at, ability['probability'],
+            )
             judgement = self._request_choice_judgements(exercise)
             judgement_steps = judgement.get('steps', [])
             exercise_steps = exercise.content.get('steps', [])
@@ -237,7 +279,7 @@ class LearningMateService:
             selected_indices = []
             selected_confidence = []
             distributions = []
-            for step, judged in zip(exercise_steps, judgement_steps):
+            for step, judged, step_ability in zip(exercise_steps, judgement_steps, step_abilities):
                 choices = step.get('choices', [])
                 if len(choices) < 2:
                     raise ValueError("선택지가 2개 미만인 step이 있습니다.")
@@ -246,7 +288,8 @@ class LearningMateService:
                 )
                 correct_index = step['correct_index']
                 adjusted = self.calibrate_distribution(
-                    raw, correct_index, ability['probability']
+                    raw, correct_index, step_ability['probability'],
+                    bkt=step_ability['source'] == 'bkt',
                 )
                 selected = random.choices(
                     range(len(choices)), weights=adjusted, k=1
@@ -270,6 +313,9 @@ class LearningMateService:
             mate_attempt.is_correct = evaluation['is_correct']
             mate_attempt.context_snapshot = {
                 'ability': ability,
+                'step_abilities': step_abilities,
+                'ability_cutoff': mate_attempt.created_at.isoformat(),
+                'calibration_version': 'bkt-v1',
                 'distributions': distributions,
             }
             mate_attempt.model_name = self.MODEL

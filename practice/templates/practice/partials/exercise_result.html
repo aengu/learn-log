@@ -53,6 +53,10 @@
         <div class="bg-base-200 rounded-lg p-4 text-sm whitespace-pre-line">{{ exercise.content.model_answer }}</div>
         {% endif %}
 
+        {% if exercise.exercise_type == 'path_trace' %}
+        {% include 'practice/partials/bkt_attempt.html' %}
+        {% endif %}
+
         {% if exercise.exercise_type == 'path_trace' and mate_attempt %}
         <div class="divider my-2"></div>
         {% include 'practice/partials/mate_comparison.html' %}

@@ -1,10 +1,13 @@
 """러닝메이트의 수준 추정, 확률 보정, 풀이 저장 테스트."""
 
 import random
+from dataclasses import asdict
 
 import pytest
 
-from practice.models import Exercise, ExerciseAttempt, MateAttempt
+from practice.models import BKTObservation, Concept, ConceptMastery, Exercise, ExerciseAttempt, MateAttempt
+from practice.services.bkt_math import DEFAULT_PARAMETERS, MODEL_VERSION
+from practice.services.bkt_service import BKTService
 from practice.services.learning_mate_service import LearningMateService
 
 from search.tests.factories import LearningLogFactory
@@ -148,3 +151,113 @@ class TestMateSolving:
         assert rows[0]["mate_choice"] == "Service"
         assert rows[0]["user_correct"] is True
         assert rows[0]["mate_correct"] is False
+
+
+class TestBKTCalibration:
+    def approved_exercise(self):
+        exercise = make_exercise()
+        concept = Concept.objects.create(id='test.flow', name='호출 흐름')
+        for step in exercise.content['steps']:
+            step.update(concept_id=concept.pk, concept_candidate=None,
+                        _concept_review={'status': 'approved'})
+        exercise.save(update_fields=['content'])
+        return exercise
+
+    def test_approved_concept_without_history_uses_initial_prior(self):
+        exercise = self.approved_exercise()
+        mate = MateAttempt.objects.create(exercise=exercise)
+        result = LearningMateService.estimate_step_probabilities(exercise, mate.created_at, 0.5)
+
+        assert len(result) == 3
+        assert all(step['source'] == 'bkt' for step in result)
+        assert result[0]['mastery'] == 0.3
+        assert result[0]['probability'] == pytest.approx(0.445)
+        assert result[0]['observation_id'] is None
+        assert result[0]['parameters'] == asdict(DEFAULT_PARAMETERS)
+
+    def test_uses_last_prior_observation_not_current_user_result(self):
+        exercise = self.approved_exercise()
+        previous = ExerciseAttempt.objects.create(
+            exercise=exercise, user_answer={'selected_indices': [0]}, score=1,
+        )
+        BKTService.record_attempt(previous)
+        observation = previous.bkt_observations.get()
+        mate = MateAttempt.objects.create(exercise=exercise)
+        current = ExerciseAttempt.objects.create(
+            exercise=exercise, user_answer={'selected_indices': [1, 0, 0]}, score=0,
+        )
+        BKTService.record_attempt(current)
+        service = LearningMateService.__new__(LearningMateService)
+
+        result = service.estimate_step_probabilities(exercise, mate.created_at, 0.5)
+        assert all(step['observation_id'] == observation.pk for step in result)
+        assert result[0]['mastery'] == pytest.approx(observation.mastery_after)
+        assert result[0]['probability'] == pytest.approx(observation.mastery_after * .9 + (1 - observation.mastery_after) * .25)
+        fallback = service.estimate_user_probability(exercise, before=mate.created_at)
+        assert fallback['recent']['total_steps'] == 1
+        assert fallback['recent']['correct_steps'] == 1
+
+    def test_mixed_review_states_and_inactive_concepts_fall_back(self):
+        exercise = self.approved_exercise()
+        exercise.content['steps'][1]['_concept_review']['status'] = 'on_hold'
+        exercise.content['steps'][2]['concept_candidate'] = {'name': '미등록'}
+        mate = MateAttempt.objects.create(exercise=exercise)
+
+        result = LearningMateService.estimate_step_probabilities(exercise, mate.created_at, 0.6)
+        assert [step['source'] for step in result] == ['bkt', 'heuristic', 'heuristic']
+        assert result[1]['probability'] == 0.6
+        Concept.objects.update(is_active=False)
+        assert all(step['source'] == 'heuristic' for step in LearningMateService.estimate_step_probabilities(exercise, mate.created_at, 0.6))
+
+    def test_each_concept_uses_its_own_mastery(self):
+        exercise = self.approved_exercise()
+        other = Concept.objects.create(id='test.other', name='다른 개념')
+        exercise.content['steps'][1]['concept_id'] = other.pk
+        exercise.save(update_fields=['content'])
+        previous = ExerciseAttempt.objects.create(
+            exercise=exercise, user_answer={'selected_indices': [0, 0]}, score=.5,
+        )
+        BKTService.record_attempt(previous)
+        mate = MateAttempt.objects.create(exercise=exercise)
+
+        result = LearningMateService.estimate_step_probabilities(exercise, mate.created_at, 0.5)
+        assert result[0]['mastery'] == pytest.approx(.6460674157)
+        assert result[1]['mastery'] == pytest.approx(.1486486486)
+        assert result[2]['mastery'] == result[0]['mastery']
+        assert result[0]['probability'] > result[1]['probability']
+
+    def test_stale_parameters_fall_back_instead_of_mixing_versions(self):
+        exercise = self.approved_exercise()
+        previous = ExerciseAttempt.objects.create(
+            exercise=exercise, user_answer={'selected_indices': [0]}, score=1,
+        )
+        BKTService.record_attempt(previous)
+        previous.bkt_observations.update(model_version='old-version')
+        mate = MateAttempt.objects.create(exercise=exercise)
+
+        result = LearningMateService.estimate_step_probabilities(exercise, mate.created_at, 0.5)
+        assert result[0] == {'source': 'heuristic', 'probability': 0.5, 'reason': 'bkt_rebuild_required'}
+
+    def test_bkt_probability_is_not_blended_with_llm(self):
+        for raw in ([0.01, 0.97, 0.01, 0.01], [1, 0, 0, 0]):
+            adjusted = LearningMateService.calibrate_distribution(raw, 0, .67, bkt=True)
+            assert adjusted[0] == pytest.approx(.67)
+            assert sum(adjusted) == pytest.approx(1)
+
+    def test_solve_records_per_step_bkt_audit_without_updating_user_state(self, monkeypatch):
+        exercise = self.approved_exercise()
+        mate = MateAttempt.objects.create(exercise=exercise)
+        service = LearningMateService.__new__(LearningMateService)
+        monkeypatch.setattr(service, '_request_choice_judgements', lambda exercise: {
+            'steps': [{'probabilities': [.25] * 4} for _ in range(3)],
+        })
+
+        result = service.solve_attempt(mate)
+        assert result.status == 'ready'
+        snapshot = result.context_snapshot
+        assert snapshot['ability_cutoff'] == mate.created_at.isoformat()
+        assert snapshot['step_abilities'][0]['model_version'] == MODEL_VERSION
+        assert snapshot['distributions'][0]['adjusted'][0] == pytest.approx(.445)
+        assert not ExerciseAttempt.objects.exists()
+        assert not ConceptMastery.objects.exists()
+        assert not BKTObservation.objects.exists()

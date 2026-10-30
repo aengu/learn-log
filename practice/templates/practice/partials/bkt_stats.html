@@ -1,0 +1,94 @@
+{% load bkt_display %}
+<section id="bkt-report" class="card bg-base-100 shadow-xl mt-8">
+    <div class="card-body">
+        <h2 class="card-title text-lg">개념별 숙련도 · BKT</h2>
+        <p class="text-sm text-base-content/60">승인 문항의 풀이로 계산한 추정치입니다. 망각·난이도·풀이 시간은 반영하지 않으며, 시간이 지났다는 이유만으로 숙련도가 내려가지는 않습니다.</p>
+        <details class="my-3">
+            <summary class="cursor-pointer text-sm font-medium">현재 공통 고정 파라미터</summary>
+            {% include 'practice/partials/bkt_parameters.html' with parameters=bkt_parameters %}
+            <p class="text-xs text-base-content/60 mt-2">아래 기록은 당시 저장된 파라미터 기준입니다. 파라미터 변경 후 재계산하면 과거 곡선도 바뀝니다.</p>
+        </details>
+        {% if bkt_concepts %}
+        <div class="overflow-x-auto">
+            <table class="table table-sm">
+                <thead><tr><th>개념</th><th>현재 숙련도</th><th>다음 풀이 예상 정답률</th><th>반영 문항 수</th></tr></thead>
+                <tbody>
+                    {% for row in bkt_concepts %}
+                    <tr {% if row.concept.pk == bkt_selected.concept.pk %}class="bg-base-200"{% endif %}>
+                        <td><a class="link" href="?concept={{ row.concept.pk|urlencode }}#bkt-report">{{ row.concept.name }}</a>{% if not row.concept.is_active %} <span class="badge badge-ghost badge-sm">비활성</span>{% endif %}</td>
+                        {% if row.state %}
+                        <td>{{ row.state.mastery|percent }}</td><td>{{ row.predicted_correct|percent }}</td><td>{{ row.state.observation_count }}</td>
+                        {% else %}
+                        <td colspan="3" class="text-base-content/60">관측 없음</td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="get" action="{% url 'search:stats' %}#bkt-report" class="flex flex-wrap items-end gap-2 mt-4">
+            <label class="form-control flex-1 min-w-0">
+                <span class="label-text mb-1">그래프로 볼 개념</span>
+                <select name="concept" class="select select-bordered w-full">
+                    {% for row in bkt_concepts %}<option value="{{ row.concept.pk }}" {% if row.concept.pk == bkt_selected.concept.pk %}selected{% endif %}>{{ row.concept.name }}</option>{% endfor %}
+                </select>
+            </label>
+            <button class="btn btn-outline" type="submit">보기</button>
+        </form>
+        <h3 class="font-semibold mt-4">{{ bkt_selected.concept.name }} · 숙련도 변화</h3>
+        {% if bkt_points %}
+        <p class="text-xs text-base-content/60">가로축: 반영 문항 순서 · 세로축: 숙련도 · 점을 선택하면 해당 풀이의 상세 기록을 확인할 수 있습니다.</p>
+        <div class="overflow-x-auto">
+            <svg viewBox="0 0 700 265" class="w-full min-w-[320px]" role="img" aria-labelledby="bkt-chart-title bkt-chart-desc">
+                <title id="bkt-chart-title">{{ bkt_selected.concept.name }} 숙련도 변화 그래프</title>
+                <desc id="bkt-chart-desc">초기 숙련도에서 시작해 각 문항 풀이 후 숙련도를 연결합니다. 아래 표에서도 모든 값을 확인할 수 있습니다.</desc>
+                <g stroke="currentColor" opacity="0.15" fill="none">
+                    <path d="M50 20H650 M50 120H650 M50 220H650" />
+                </g>
+                <g fill="currentColor" font-size="12">
+                    <text x="8" y="24">100%</text><text x="16" y="124">50%</text><text x="24" y="224">0%</text>
+                    <text x="50" y="246" text-anchor="middle">시작</text>
+                    <text x="650" y="246" text-anchor="middle">{{ bkt_observations|length }}문항</text>
+                </g>
+                <polyline points="{{ bkt_polyline }}" fill="none" stroke="currentColor" stroke-width="2" class="text-primary" />
+                {% for point in bkt_points %}
+                {% if point.observation %}
+                <a href="?concept={{ bkt_selected.concept.pk|urlencode }}&amp;observation={{ point.observation.pk }}#bkt-report" aria-label="{{ point.number }}번째 풀이, {% if point.observation.is_correct %}정답{% else %}오답{% endif %}, 숙련도 {{ point.mastery|percent }}">
+                    <circle cx="{{ point.x|floatformat:'2u' }}" cy="{{ point.y|floatformat:'2u' }}" r="6" fill="currentColor" class="{% if point.observation.is_correct %}text-success{% else %}text-error{% endif %}">
+                        <title>{{ point.observation.observed_at|date:'Y-m-d H:i' }} · {% if point.observation.is_correct %}정답{% else %}오답{% endif %} · {{ point.mastery|percent }}</title>
+                    </circle>
+                </a>
+                {% else %}
+                <circle cx="{{ point.x|floatformat:'2u' }}" cy="{{ point.y|floatformat:'2u' }}" r="5" fill="currentColor" class="text-primary"><title>초기 숙련도 {{ point.mastery|percent }}</title></circle>
+                {% endif %}
+                {% endfor %}
+            </svg>
+        </div>
+        <div class="bg-base-200 rounded-box p-4 text-sm">
+            <p class="font-medium">선택한 풀이 · {{ bkt_detail.observed_at|date:'Y-m-d H:i' }} · {% if bkt_detail.is_correct %}정답{% else %}오답{% endif %}</p>
+            <p class="mt-1">풀이 전 {{ bkt_detail.mastery_before|percent }} → 정오답 반영 {{ bkt_detail.mastery_posterior|percent }} → 학습 전이 반영 {{ bkt_detail.mastery_after|percent }}</p>
+            <p class="mt-1">풀이 전 예상 정답률 {{ bkt_detail.predicted_correct|percent }}</p>
+            <details class="mt-2"><summary class="cursor-pointer">당시 사용한 파라미터</summary>
+                {% include 'practice/partials/bkt_parameters.html' with parameters=bkt_detail.parameters %}
+                <p class="text-xs mt-2">모델 버전: {{ bkt_detail.model_version }}</p>
+            </details>
+        </div>
+        <details class="mt-3">
+            <summary class="cursor-pointer text-sm">전체 풀이 이력 · {{ bkt_observations|length }}문항</summary>
+            <div class="overflow-x-auto mt-2">
+                <table class="table table-sm">
+                    <thead><tr><th>순서</th><th>시각</th><th>결과</th><th>숙련도 변화</th></tr></thead>
+                    <tbody>{% for observation in bkt_observations %}
+                        <tr><td><a class="link" href="?concept={{ bkt_selected.concept.pk|urlencode }}&amp;observation={{ observation.pk }}#bkt-report">{{ forloop.counter }}</a></td><td>{{ observation.observed_at|date:'Y-m-d H:i' }}</td><td>{% if observation.is_correct %}정답{% else %}오답{% endif %}</td><td>{{ observation.mastery_before|percent }} → {{ observation.mastery_after|percent }}</td></tr>
+                    {% endfor %}</tbody>
+                </table>
+            </div>
+        </details>
+        {% else %}
+        <p class="text-sm text-base-content/60 py-6">관측 없음: 승인된 문항의 풀이가 반영되면 그래프를 표시합니다.</p>
+        {% endif %}
+        {% else %}
+        <p class="text-sm text-base-content/60 py-6">등록된 개념이 없습니다. 문항 검토 후 개념을 등록하면 여기에 표시됩니다.</p>
+        {% endif %}
+    </div>
+</section>
