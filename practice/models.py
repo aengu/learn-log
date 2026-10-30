@@ -1,5 +1,5 @@
 from django.db import models
-from django.core.validators import RegexValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.utils import timezone
 
 
@@ -171,4 +171,64 @@ class MateAttempt(models.Model):
 
     def __str__(self):
         return f"러닝메이트 - {self.exercise} ({self.get_status_display()})"
+
+
+class ConceptMastery(models.Model):
+    """단일 사용자의 개념별 BKT 상태. 관측 이력에서 재구성 가능한 계산 결과다."""
+
+    concept = models.OneToOneField(Concept, on_delete=models.CASCADE, related_name='user_mastery')
+    mastery = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
+    observation_count = models.PositiveIntegerField(default=0)
+    correct_count = models.PositiveIntegerField(default=0)
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+    model_version = models.CharField(max_length=30)
+    parameters = models.JSONField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['concept_id']
+        verbose_name = '사용자 개념 숙련도'
+        verbose_name_plural = '사용자 개념 숙련도'
+        constraints = [
+            models.CheckConstraint(condition=models.Q(mastery__gte=0, mastery__lte=1), name='bkt_mastery_probability_range'),
+            models.CheckConstraint(condition=models.Q(correct_count__lte=models.F('observation_count')), name='bkt_mastery_correct_count'),
+        ]
+
+    def __str__(self):
+        return f'{self.concept}: {self.mastery:.1%} ({self.observation_count}문항)'
+
+
+class BKTObservation(models.Model):
+    """승인 문항의 정오답과 갱신 전후 상태. attempt + step_index는 한 번만 반영한다."""
+
+    attempt = models.ForeignKey(ExerciseAttempt, on_delete=models.CASCADE, related_name='bkt_observations')
+    concept = models.ForeignKey(Concept, on_delete=models.CASCADE, related_name='bkt_observations')
+    step_index = models.PositiveIntegerField(help_text='세트 안의 0부터 시작하는 원본 문항 인덱스')
+    is_correct = models.BooleanField()
+    mastery_before = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
+    predicted_correct = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
+    mastery_posterior = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
+    mastery_after = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
+    parameters = models.JSONField()
+    model_version = models.CharField(max_length=30)
+    step_snapshot = models.JSONField()
+    observed_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['observed_at', 'attempt_id', 'step_index']
+        verbose_name = 'BKT 관측 이력'
+        verbose_name_plural = 'BKT 관측 이력'
+        constraints = [
+            models.UniqueConstraint(fields=['attempt', 'step_index'], name='bkt_unique_attempt_step'),
+            models.CheckConstraint(
+                condition=models.Q(
+                    mastery_before__gte=0, mastery_before__lte=1,
+                    predicted_correct__gte=0, predicted_correct__lte=1,
+                    mastery_posterior__gte=0, mastery_posterior__lte=1,
+                    mastery_after__gte=0, mastery_after__lte=1,
+                ),
+                name='bkt_observation_probability_range',
+            ),
+        ]
 

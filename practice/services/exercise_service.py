@@ -3,10 +3,12 @@ import textwrap
 
 from groq import Groq
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from ..models import Concept, Exercise, ExerciseAttempt
+from .bkt_service import BKTService
 from .exercise_context import build_exercise_context
 from .exercise_prompt import build_choice_prompt
 
@@ -405,6 +407,7 @@ class ExerciseService:
 
     # ── 저장 & 간격 반복 ────────────────────────────────────────────────
 
+    @transaction.atomic
     def save_attempt(self, exercise, user_answer, evaluation):
         attempt = ExerciseAttempt.objects.create(
             exercise=exercise,
@@ -417,6 +420,7 @@ class ExerciseService:
             exercise.advance_interval()
         else:
             exercise.reset_interval()
+        BKTService.record_attempt(attempt)
         return attempt
 
     @staticmethod
