@@ -13,7 +13,7 @@
         {% if exercises %}
         <div class="flex flex-col gap-4">
             {% for ex in exercises %}
-            <a href="{% url 'search:exercise_detail' ex.pk %}"
+            <a href="{% url 'practice:exercise_detail' ex.pk %}"
                class="card bg-base-100 shadow hover:shadow-md transition-shadow">
                 <div class="card-body py-4">
                     <div class="flex items-start justify-between gap-4">
@@ -33,7 +33,7 @@
                             <!-- 문제 -->
                             <p class="text-sm text-base-content/60 mt-1 truncate">
                                 {% if ex.exercise_type == 'path_trace' %}
-                                    {{ ex.content.scenario }}
+                                    {{ ex.content.scenario|default:ex.content.steps.0.question }}
                                 {% else %}
                                     {{ ex.content.question }}
                                 {% endif %}

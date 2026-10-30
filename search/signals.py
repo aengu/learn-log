@@ -5,7 +5,9 @@ Streak 자동 갱신 시그널.
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import LearningLog, ExerciseAttempt, Streak
+from practice.models import ExerciseAttempt
+
+from .models import LearningLog, Streak
 
 
 @receiver(post_save, sender=LearningLog)

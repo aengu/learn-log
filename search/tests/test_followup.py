@@ -2,7 +2,7 @@
 import pytest
 
 from search.services import LearnlogService
-from search.services.exercise_service import ExerciseService
+from practice.services.exercise_service import ExerciseService
 from .factories import LearningLogFactory
 
 pytestmark = pytest.mark.django_db

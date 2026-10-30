@@ -3,10 +3,14 @@ import textwrap
 
 from groq import Groq
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from ..models import Exercise, ExerciseAttempt
+from ..models import Concept, Exercise, ExerciseAttempt
+from .bkt_service import BKTService
+from .exercise_context import build_exercise_context
+from .exercise_prompt import build_choice_prompt
 
 
 class ExerciseService:
@@ -81,56 +85,32 @@ class ExerciseService:
         return self._call_json(prompt)
 
     PATH_TRACE_MIN_STEPS = 3   # 최소 통과 step 수 (미달 시 재생성 시도)
+    PROMPT_VERSION = 'choice-v2'
+    COGNITIVE_TYPES = {'concept_discrimination', 'application', 'execution_trace'}
+    DIFFICULTIES = {'easy', 'medium', 'hard'}
+
+    @staticmethod
+    def _concept_candidates(log, context):
+        """관련 이름·ID가 자료에 등장하는 등록 개념만 최대 10개 제공한다."""
+        text = f'{log.query}\n{context}'.casefold()
+        candidates = []
+        for concept in Concept.objects.filter(is_active=True).iterator():
+            names = [concept.name.casefold(), concept.pk.rsplit('.', 1)[-1].replace('_', ' ')]
+            if any(name in text for name in names):
+                candidates.append({'id': concept.pk, 'name': concept.name, 'description': concept.description})
+            if len(candidates) >= 10:
+                break
+        return candidates
 
     def _gen_path_trace(self, log):
-        """
-        출제 후 결정적 검증(choices[correct_index] == correct_answer)으로 잘못된 step을 걸러낸다.
-        통과 step이 부족하면 1회 재생성한다. 프롬프트 규칙만으로 잡지 못하는 환각을 런타임에서 차단.
-        """
-        prompt = textwrap.dedent(f"""
-            아래 학습 내용으로 "경로추적" 연습문제를 만들어주세요.
-            실행 흐름을 단계별로 추적하며 객관식으로 답하는 유형입니다. steps는 3~5개.
-
-            {self._parent_context(log)}질문: {log.query}
-            답변: {log.ai_response[:500]}
-
-            JSON으로만 응답 (```없이):
-            {{"scenario": "시나리오 설명", "steps": [{{"question": "질문", "choices": ["A","B","C","D"], "correct_index": 0, "correct_answer": "A", "explanation": "설명", "distractors": [{{"index": 1, "type": "adjacent", "why": "이 보기를 고른 사람이 오해한 것"}}, {{"index": 2, "type": "one-step-short", "why": "..."}}, {{"index": 3, "type": "inverted", "why": "..."}}]}}]}}
-
-            ⚠️ correct_index 규칙 (반드시 준수):
-            - choices 배열의 0-based 인덱스 (첫 요소 = 0)
-            - choices[correct_index]가 정답 값과 정확히 같아야 함
-            - 예: choices=["1","2","3","4"], 정답="2" → correct_index=1 (choices[1]="2")
-            - correct_index를 정한 뒤 choices[correct_index]로 검증하세요.
-
-            ⚠️ correct_answer 규칙:
-            - 정답의 실제 값(value). choices 배열 중 한 요소와 글자까지 정확히 같아야 함.
-            - 항상 choices[correct_index]와 동일한 문자열을 넣으세요. (코드 레벨 검증용 ground truth)
-
-            ⚠️ 오답 규칙 (문제의 품질은 정답이 아니라 오답이 결정합니다):
-            - distractors에 오답 3개를 전부 적으세요. index는 correct_index가 아닌 나머지 셋.
-            - why: "이 보기를 고른 사람은 무엇을 오해한 것인가"를 한 문장으로.
-              쓸 수 없는 보기는 아무도 안 고르는 죽은 보기이므로 다른 오답으로 바꾸세요.
-            - type은 다음 중 하나:
-              adjacent(인접 개념 치환) / inverted(방향·주체를 뒤집음) /
-              overgeneralized(조건부 참을 단정) / one-step-short(부분적으로 맞지만 핵심 누락) /
-              vendor-mixup(다른 버전·다른 도구의 동작) / outdated(예전엔 맞았던 것) /
-              plausible-number(자릿수·단위가 그럴듯하게 틀림)
-            - 오답 3개가 전부 같은 type이면 안 됩니다. 최소 2종을 섞으세요.
-            - one-step-short를 최소 1개 넣으세요. 아는 사람과 어설프게 아는 사람을 가르는 것은
-              대개 "거의 맞았지만 핵심을 빠뜨린 답"입니다.
-
-            ⚠️ 요령으로 풀리지 않게:
-            - 정답만 길게 쓰지 마세요. 네 보기의 길이와 서술 밀도를 맞추세요.
-              정답이 메커니즘을 말하면 오답도 (틀린) 메커니즘을 말해야 합니다.
-            - "위의 모든 것", "정답 없음", "해당 없음" 금지.
-            - 발문에 정답을 흘리지 마세요. 발문과 어휘가 가장 많이 겹치는 보기가 정답이면 실패입니다.
-            - "항상/절대/모든/반드시" 같은 단정 표현이 오답에만 몰리면 안 됩니다.
-        """).strip()
+        """자료에 근거한 객관식 출제. 형식·태그를 검증하며 사실성은 보장하지 않는다."""
+        context, context_audit = build_exercise_context(log)
+        concepts = self._concept_candidates(log, context)
+        prompt = build_choice_prompt(log.query, context, concepts, self._parent_context(log))
 
         content, raw_count = self._gen_and_validate(prompt)
         attempts = [content.get('_audit', {})]
-        # 환각 1개라도 발생(통과 < raw) 또는 통과 step 부족이면 1회 재생성, 더 많은 쪽 채택
+        # 구조·태그 위반 또는 유효 step 부족이면 1회 재생성, 더 많은 쪽 채택
         all_ok = len(content.get('steps', [])) == raw_count and raw_count >= self.PATH_TRACE_MIN_STEPS
         if not all_ok:
             retry, _ = self._gen_and_validate(prompt)
@@ -139,6 +119,11 @@ class ExerciseService:
                 content = retry
         # 채택하지 않은 시도의 탈락 사유도 남긴다. 버리면 발동률을 잴 수 없다.
         content['_audit'] = {'attempts': attempts}
+        content['_generation'] = {
+            'prompt_version': self.PROMPT_VERSION,
+            'context': context_audit,
+            'concept_ids': [concept['id'] for concept in concepts],
+        }
 
         # 재생성 트리거가 아니라 출제 실패 조건이다.
         # 이전에는 빈 배열만 막아서, 4개가 조용히 사라진 1-step 문항이 그대로 나갔다.
@@ -153,14 +138,16 @@ class ExerciseService:
     def _gen_and_validate(self, prompt):
         """
         LLM 호출 + JSON 파싱 + 검증을 묶음. 응답이 깨져도 재생성으로 흡수되도록 예외는 빈 결과로 강등.
-        raw step 수도 같이 반환해 호출자가 "환각 발생 여부"(통과 < raw)를 판정할 수 있게 한다.
+        raw step 수도 같이 반환해 호출자가 구조·태그 위반에 따른 탈락 여부를 판정한다.
         """
         try:
             raw = self._call_json(prompt)
         except (json.JSONDecodeError, ValueError):
             return {'steps': []}, 0
-        raw_count = len(raw.get('steps', []))
-        return self._filter_valid_steps(raw), raw_count
+        if not isinstance(raw, dict) or not isinstance(raw.get('steps'), list):
+            return {'steps': [], '_audit': {'dropped': [{'reason': 'invalid-response-shape'}]}}, 0
+        raw_count = len(raw['steps'])
+        return self._filter_valid_steps(raw, require_tags=True), raw_count
 
     # ── 오답 품질 게이트 ───────────────────────────────────────────
     # 정답 자리(correct_index)가 맞는지는 _filter_valid_steps가 본다.
@@ -205,7 +192,7 @@ class ExerciseService:
                 duplicated = True
             by_index[idx] = d
 
-        if meta and (duplicated or set(by_index) != want):
+        if duplicated or set(by_index) != want:
             # 결정적 검증이라 correct_index 검사와 같은 등급이다
             hard.append("distractor-index-mismatch")
         elif want:
@@ -217,9 +204,6 @@ class ExerciseService:
             known = [t for t in types if t in cls.DISTRACTOR_TYPES]
             if len(known) != len(types):
                 hard.append("unknown-distractor-type")
-            elif len(known) >= 2 and len(set(known)) < 2:
-                # 오답 타입이 전부 같으면 응시자가 패턴을 학습한다
-                hard.append("uniform-distractor-type")
 
         # S1. 길이 편향
         if wrong and ci is not None and 0 <= ci < len(choices):
@@ -259,25 +243,66 @@ class ExerciseService:
                 st.setdefault("_quality_flags", []).append("correct-index-fixed")
         return content
 
-    @staticmethod
-    def _filter_valid_steps(content):
-        """
-        choices[correct_index] == correct_answer를 만족하는 step만 남긴다.
-        결정적 규칙 검증(LLM 판정이 아닌 코드 비교)이라 환각이 통과할 여지가 없다.
-        """
+    @classmethod
+    def _filter_valid_steps(cls, content, require_tags=False):
+        """구조·인덱스·문자열 일치와 태그를 검사한다. 정답의 사실성 검사는 아니다."""
         raw = content.get('steps', [])
         valid, dropped = [], []
+        concept_ids = set(Concept.objects.filter(is_active=True).values_list('pk', flat=True)) if require_tags else set()
         for step in raw:
+            if not isinstance(step, dict):
+                dropped.append({'reason': 'invalid-step-shape'})
+                continue
             ci = step.get('correct_index')
             ca = step.get('correct_answer')
             cs = step.get('choices', [])
-            if isinstance(ci, int) and 0 <= ci < len(cs) and ca is not None and cs[ci] == ca:
-                valid.append(step)
-            else:
+            if not isinstance(cs, list) or len(cs) != 4 or any(not isinstance(c, str) or not c.strip() for c in cs):
+                dropped.append({'reason': 'invalid-choices'})
+                continue
+            if len({choice.strip().casefold() for choice in cs}) != len(cs):
+                dropped.append({'reason': 'duplicate-choices'})
+                continue
+            if type(ci) is not int or not 0 <= ci < len(cs) or cs[ci] != ca:
                 dropped.append({'reason': 'correct-index-mismatch'})
+                continue
+            if require_tags:
+                if any(not isinstance(step.get(key), str) or not step[key].strip() for key in ('question', 'explanation')):
+                    dropped.append({'reason': 'missing-question-or-explanation'})
+                    continue
+                reason = cls._validate_step_tags(step, concept_ids)
+                if reason:
+                    dropped.append({'reason': reason})
+                    continue
+            metadata = step.get('distractors')
+            if not isinstance(metadata, list) or any(
+                not isinstance(item, dict) or type(item.get('index')) is not int
+                or not isinstance(item.get('type'), str) or not isinstance(item.get('why'), str)
+                for item in metadata
+            ):
+                dropped.append({'reason': 'invalid-distractor-shape'})
+                continue
+            valid.append(step)
         content['steps'] = valid
         content['_audit'] = {'raw_count': len(raw), 'dropped': dropped}
-        return ExerciseService._apply_quality_gates(content)
+        return cls._apply_quality_gates(content)
+
+    @classmethod
+    def _validate_step_tags(cls, step, concept_ids):
+        if not isinstance(step.get('cognitive_type'), str) or step['cognitive_type'] not in cls.COGNITIVE_TYPES:
+            return 'unknown-cognitive-type'
+        if not isinstance(step.get('estimated_difficulty'), str) or step['estimated_difficulty'] not in cls.DIFFICULTIES:
+            return 'unknown-difficulty'
+        concept_id = step.get('concept_id')
+        candidate = step.get('concept_candidate')
+        if concept_id is not None:
+            if not isinstance(concept_id, str) or concept_id not in concept_ids or candidate is not None:
+                return 'invalid-concept-id'
+        elif not isinstance(candidate, dict) or any(
+            not isinstance(candidate.get(key), str) or not 0 < len(candidate[key].strip()) <= limit
+            for key, limit in [('name', 100), ('description', 300)]
+        ):
+            return 'missing-concept-candidate'
+        return None
 
     def _call_json(self, prompt):
         """
@@ -382,6 +407,7 @@ class ExerciseService:
 
     # ── 저장 & 간격 반복 ────────────────────────────────────────────────
 
+    @transaction.atomic
     def save_attempt(self, exercise, user_answer, evaluation):
         attempt = ExerciseAttempt.objects.create(
             exercise=exercise,
@@ -394,6 +420,7 @@ class ExerciseService:
             exercise.advance_interval()
         else:
             exercise.reset_interval()
+        BKTService.record_attempt(attempt)
         return attempt
 
     @staticmethod

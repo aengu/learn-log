@@ -14,7 +14,7 @@ import json
 import time
 
 from search.models import LearningLog
-from search.services import ExerciseService
+from practice.services import ExerciseService
 
 # ── 설정 ───────────────────────────────────────────────
 N = 20  # 표본 크기. 빠르게 보고 싶으면 5~10으로.
