@@ -28,6 +28,8 @@ class SearchState(TypedDict, total=False):
     use_logs: bool              # 라우터: 로그를 답변 컨텍스트로 쓸지
     need_web: bool              # 라우터: 웹 검색 보강이 필요한지
     route_reason: str
+    answer_focus: str           # 설명 중심: concept/mechanism/implementation/comparison/troubleshooting/auto
+    example_stack: str          # 예제 스택: sql/python/django/auto
     search_results: dict        # Tavily 결과
     answer: str
     answer_source: str          # 답변 컨텍스트 출처: both/logs/web/none
@@ -44,11 +46,16 @@ def build_search_agent(service):
         return {'retrieved_logs': logs}
 
     def router(state):
-        decision = service.decide_route(state['query'], state['retrieved_logs'])
+        decision = service.decide_route(
+            state['query'], state['retrieved_logs'],
+            parent=state.get('parent'), custom_instructions=state.get('custom_instructions'),
+        )
         return {
             'use_logs': decision['use_logs'],
             'need_web': decision['need_web'],
             'route_reason': decision['reason'],
+            'answer_focus': decision.get('answer_focus', 'auto'),
+            'example_stack': decision.get('example_stack', 'auto'),
         }
 
     def web_search(state):
@@ -83,6 +90,8 @@ def build_search_agent(service):
             retrieved_logs=retrieved,
             retrieved_limit=retrieved_limit,
             meta=meta,
+            answer_focus=state.get('answer_focus', 'auto'),
+            example_stack=state.get('example_stack', 'auto'),
         ):
             chunks.append(chunk)
             writer({'token': chunk})
