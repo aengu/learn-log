@@ -110,6 +110,7 @@ def test_result_shows_saved_update_and_parameters(client, approved_exercise):
     assert response.status_code == 200
     html = response.content.decode()
     assert '숙련도 변화 · BKT' in html
+    assert '다음 복습: 3일 후' in html
     assert '풀이 전 30.0% → 풀이 후 64.6%' in html
     assert '정오답 반영 직후 60.7%' in html
     assert '예상 정답률 44.5%' in html

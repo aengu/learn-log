@@ -1,16 +1,20 @@
 from django.contrib import admin
 
-from .models import BKTObservation, Concept, ConceptMastery, Exercise, ExerciseAttempt, MateAttempt
+from .models import BKTFailureStep, BKTObservation, BKTUpdateFailure, Concept, ConceptMastery, Exercise, ExerciseAttempt, MateAttempt
+from .services.bkt_lock import BKTLockedAdminMixin
 
 
 @admin.register(Concept)
-class ConceptAdmin(admin.ModelAdmin):
+class ConceptAdmin(BKTLockedAdminMixin, admin.ModelAdmin):
     list_display = ['id', 'name', 'is_active']
     search_fields = ['id', 'name', 'description']
     list_filter = ['is_active']
 
-admin.site.register(Exercise)
-admin.site.register(ExerciseAttempt)
+@admin.register(Exercise)
+class ExerciseAdmin(BKTLockedAdminMixin, admin.ModelAdmin):
+    pass
+
+
 admin.site.register(MateAttempt)
 
 
@@ -43,3 +47,19 @@ class BKTObservationAdmin(ReadOnlyBKTAdmin):
     list_select_related = ['concept']
     list_filter = ['is_correct', 'concept']
     search_fields = ['concept__id', 'concept__name']
+
+
+@admin.register(ExerciseAttempt)
+class ExerciseAttemptAdmin(ReadOnlyBKTAdmin):
+    """원본 풀이의 수정/삭제로 복구 근거가 사라지는 것을 관리자 경로에서 제한한다."""
+
+
+@admin.register(BKTUpdateFailure)
+class BKTUpdateFailureAdmin(ReadOnlyBKTAdmin):
+    list_display = ['attempt_id', 'error_code', 'failed_step_index', 'created_at', 'resolved_at']
+
+
+@admin.register(BKTFailureStep)
+class BKTFailureStepAdmin(ReadOnlyBKTAdmin):
+    list_display = ['id', 'failure_id', 'step_index', 'concept', 'status', 'exclusion_reason']
+    list_filter = ['status', 'concept']

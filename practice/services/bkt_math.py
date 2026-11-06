@@ -36,13 +36,17 @@ def update_mastery(prior, is_correct, parameters=DEFAULT_PARAMETERS):
     _validate_probability(prior)
     if type(is_correct) is not bool:
         raise ValueError('정오답은 bool이어야 합니다.')
+    # DB 변경 없는 순수 계산 1: 관측 전 숙련도에서 이번 문항의 예상 정답 확률을 구한다.
     predicted_correct = prior * (1 - parameters.slip) + (1 - prior) * parameters.guess
+    # 계산 2: 실제 정오답이 알려졌을 때, 알고/모르는 상태에서 그 결과가 나올 가능도.
     known_likelihood = 1 - parameters.slip if is_correct else parameters.slip
     unknown_likelihood = parameters.guess if is_correct else 1 - parameters.guess
     evidence = prior * known_likelihood + (1 - prior) * unknown_likelihood
     if evidence == 0:
         raise ValueError('이 파라미터에서 발생할 수 없는 관측입니다.')
     posterior = prior * known_likelihood / evidence
+    # 계산 3: 정오답으로 보정한 숙련도에 학습 전이를 반영한다.
+    # learn을 그대로 더하지 않고, 아직 모를 확률 (1-posterior)에만 적용한다.
     return {
         'mastery_before': prior,
         'predicted_correct': predicted_correct,

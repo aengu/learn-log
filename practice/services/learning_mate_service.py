@@ -15,6 +15,7 @@ from search.models import LearningLog
 from ..models import BKTObservation, Concept, ExerciseAttempt, MateAttempt
 from .bkt_math import DEFAULT_PARAMETERS, MODEL_VERSION
 from .bkt_service import BKTService
+from .bkt_lock import pending_concept_ids
 from .exercise_service import ExerciseService
 
 
@@ -161,7 +162,11 @@ class LearningMateService:
         ).order_by('-observed_at', '-attempt_id', '-step_index'):
             latest.setdefault(observation.concept_id, observation)
         parameters = asdict(DEFAULT_PARAMETERS)
+        dirty_ids = pending_concept_ids()
         for index, step in approved:
+            if step['concept_id'] in dirty_ids:
+                results[index]['reason'] = 'bkt_rebuild_required'
+                continue
             observation = latest.get(step['concept_id'])
             if observation and (
                 observation.model_version != MODEL_VERSION or observation.parameters != parameters

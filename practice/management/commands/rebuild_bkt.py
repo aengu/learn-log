@@ -1,9 +1,9 @@
 """승인된 문항의 사용자 풀이로 BKT 상태를 재구성한다."""
 import json
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
-from practice.services.bkt_service import BKTService
+from practice.services.bkt_service import BKTConsistencyError, BKTService
 
 
 class Command(BaseCommand):
@@ -13,5 +13,8 @@ class Command(BaseCommand):
         parser.add_argument('--apply', action='store_true', help='BKT 결과 두 테이블을 시간순 재계산한 결과로 교체')
 
     def handle(self, *args, **options):
-        result = BKTService.rebuild(apply=options['apply'])
+        try:
+            result = BKTService.rebuild(apply=options['apply'])
+        except BKTConsistencyError as exc:
+            raise CommandError(f'{exc} 미리보기의 blockers를 확인하세요.') from exc
         self.stdout.write(json.dumps(result, ensure_ascii=False, indent=2))

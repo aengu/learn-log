@@ -141,9 +141,15 @@ class ExerciseAttemptAPIView(View):
                 })
 
             service = ExerciseService()
+            # 저장 전 채점: 정오답·점수·해설을 계산한다. 아직 풀이/BKT는 저장하지 않는다.
             evaluation = service.evaluate_attempt(exercise, user_answer)
+            # 예상된 BKT 정합성 오류는 BKT만 롤백하고 원본 풀이·실패 기록을 보존한다.
+            # 예상하지 못한 오류는 전파되어 원본 저장도 롤백된다.
             attempt = service.save_attempt(exercise, user_answer, evaluation)
+            exercise = attempt.exercise  # 잠금 후 다시 읽고 복습 주기를 갱신한 인스턴스
             if mate_attempt:
+                # 위 저장 트랜잭션이 정상 종료된 뒤 수행하는 별도 DB 변경이다.
+                # 대결 연결 실패가 이미 저장한 풀이를 되돌리지는 않는다.
                 mate_attempt.user_attempt = attempt
                 mate_attempt.save(update_fields=['user_attempt'])
                 mate_attempt.refresh_from_db()
@@ -158,6 +164,7 @@ class ExerciseAttemptAPIView(View):
                 ),
             })
         except Exception as e:
+            # save_attempt()에서 전파된 예외라면 해당 트랜잭션은 이미 롤백된 상태다.
             return HttpResponse(f'<div class="alert alert-error">채점 오류: {e}</div>')
 
 

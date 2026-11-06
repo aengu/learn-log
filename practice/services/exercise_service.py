@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from ..models import Concept, Exercise, ExerciseAttempt
 from .bkt_service import BKTService
+from .bkt_lock import acquire_bkt_lock
 from .exercise_context import build_exercise_context
 from .exercise_prompt import build_choice_prompt
 
@@ -409,6 +410,13 @@ class ExerciseService:
 
     @transaction.atomic
     def save_attempt(self, exercise, user_answer, evaluation):
+        # rebuild와 같은 입구에서 잠그고, 대상·스냅샷은 잠금 이후 최신 문항으로 정한다.
+        acquire_bkt_lock()
+        current = Exercise.objects.select_for_update().get(pk=exercise.pk)
+        if current.content != exercise.content or current.exercise_type != exercise.exercise_type:
+            raise ValueError('풀이 중 문항이 변경됐습니다. 새로고침 후 다시 제출하세요.')
+        exercise = current
+        # ① 원본 풀이 생성. post_save 시그널의 스트릭 갱신도 이 트랜잭션에 포함된다.
         attempt = ExerciseAttempt.objects.create(
             exercise=exercise,
             user_answer=user_answer,
@@ -416,11 +424,15 @@ class ExerciseService:
             ai_feedback=evaluation['ai_feedback'],
             score=evaluation['score'],
         )
+        # ② 세트 전체 채점 결과로 다음 복습일을 갱신한다.
         if evaluation['is_correct']:
             exercise.advance_interval()
         else:
             exercise.reset_interval()
-        BKTService.record_attempt(attempt)
+        # 예상된 BKT 정합성 오류만 내부 savepoint 밖에서 기록한다.
+        # 예상하지 못한 RuntimeError/DB 오류는 원본까지 롤백하는 기존 정책을 유지한다.
+        BKTService.capture_attempt(attempt)
+        # 정상 반환 후 atomic 블록을 빠져나가야 함께 확정된다.
         return attempt
 
     @staticmethod

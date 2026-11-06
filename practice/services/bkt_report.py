@@ -2,17 +2,20 @@ from dataclasses import asdict
 
 from ..models import BKTObservation, Concept
 from .bkt_math import DEFAULT_PARAMETERS
+from .bkt_lock import pending_concept_ids
 
 
 def concept_report(concept_id=None, observation_id=None):
     """저장된 파라미터/숙련도를 읽기만 하며, 선택 개념의 SVG 좌표를 만든다."""
     rows = []
+    dirty_ids = pending_concept_ids()
     for concept in Concept.objects.select_related('user_mastery').order_by('name', 'pk'):
         state = getattr(concept, 'user_mastery', None)
         predicted = None
-        if state:
+        if state and concept.pk not in dirty_ids:
             predicted = state.mastery * (1 - state.parameters['slip']) + (1 - state.mastery) * state.parameters['guess']
-        rows.append({'concept': concept, 'state': state, 'predicted_correct': predicted})
+        rows.append({'concept': concept, 'state': state, 'predicted_correct': predicted,
+                     'needs_rebuild': concept.pk in dirty_ids})
     selected = next((row for row in rows if row['concept'].pk == concept_id), rows[0] if rows else None)
     observations = list(BKTObservation.objects.filter(
         concept=selected['concept'],

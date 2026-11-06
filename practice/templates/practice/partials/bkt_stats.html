@@ -16,7 +16,10 @@
                     {% for row in bkt_concepts %}
                     <tr {% if row.concept.pk == bkt_selected.concept.pk %}class="bg-base-200"{% endif %}>
                         <td><a class="link" href="?concept={{ row.concept.pk|urlencode }}#bkt-report">{{ row.concept.name }}</a>{% if not row.concept.is_active %} <span class="badge badge-ghost badge-sm">비활성</span>{% endif %}</td>
-                        {% if row.state %}
+                        {% if row.needs_rebuild %}
+                        <td>{% if row.state %}이전 값 {{ row.state.mastery|percent }}{% else %}관측 없음{% endif %}<br><span class="text-warning">재계산 필요</span></td>
+                        <td>예측 보류</td><td>{% if row.state %}{{ row.state.observation_count }}{% else %}0{% endif %} (누락 있음)</td>
+                        {% elif row.state %}
                         <td>{{ row.state.mastery|percent }}</td><td>{{ row.predicted_correct|percent }}</td><td>{{ row.state.observation_count }}</td>
                         {% else %}
                         <td colspan="3" class="text-base-content/60">관측 없음</td>
@@ -36,6 +39,7 @@
             <button class="btn btn-outline" type="submit">보기</button>
         </form>
         <h3 class="font-semibold mt-4">{{ bkt_selected.concept.name }} · 숙련도 변화</h3>
+        {% if bkt_selected.needs_rebuild %}<p class="text-warning text-sm">미해결 풀이가 있습니다. 아래 그래프는 누락된 풀이가 반영되지 않은 이전 기록입니다.</p>{% endif %}
         {% if bkt_points %}
         <p class="text-xs text-base-content/60">가로축: 반영 문항 순서 · 세로축: 숙련도 · 점을 선택하면 해당 풀이의 상세 기록을 확인할 수 있습니다.</p>
         <div class="overflow-x-auto">

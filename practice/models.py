@@ -6,6 +6,15 @@ from django.utils import timezone
 REVIEW_INTERVALS = [1, 3, 7, 14, 30]
 
 
+class BKTLock(models.Model):
+    """마이그레이션에서 pk=1을 생성하는 공통 잠금 행. 관리자에 노출하지 않는다."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(pk=1), name='bkt_single_lock_row')]
+
+
 class Concept(models.Model):
     """검토 후 등록한 개념 사전. 새 출제 개념 후보는 문항 JSON에만 보관한다."""
 
@@ -231,4 +240,37 @@ class BKTObservation(models.Model):
                 name='bkt_observation_probability_range',
             ),
         ]
+
+
+class BKTUpdateFailure(models.Model):
+    """예상 가능한 정합성 오류로 전체 BKT 반영이 취소된 풀이. 원본은 보존한다."""
+
+    attempt = models.OneToOneField(ExerciseAttempt, on_delete=models.PROTECT, related_name='bkt_failure')
+    error_code = models.CharField(max_length=40)
+    error_message = models.TextField()
+    failed_step_index = models.PositiveIntegerField(null=True, blank=True)
+    model_version = models.CharField(max_length=30)
+    parameters = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+
+
+class BKTFailureStep(models.Model):
+    """전체 롤백에 포함된 각 step의 스냅샷과 복구 결과. 상태의 단일 원천이다."""
+
+    STATUS_CHOICES = [('pending', '미해결'), ('applied', '반영 완료'), ('excluded', '제외 처리 완료')]
+    failure = models.ForeignKey(BKTUpdateFailure, on_delete=models.CASCADE, related_name='steps')
+    concept = models.ForeignKey(Concept, on_delete=models.PROTECT, related_name='bkt_failure_steps')
+    step_index = models.PositiveIntegerField()
+    step_snapshot = models.JSONField()
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='pending', db_index=True)
+    exclusion_reason = models.TextField(blank=True, help_text='관리 커맨드로 제외를 확정한 이유. rebuild 성공 전에는 미해결입니다.')
+    exclusion_confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['failure_id', 'step_index']
+        constraints = [models.UniqueConstraint(fields=['failure', 'step_index'], name='bkt_unique_failure_step')]
 
