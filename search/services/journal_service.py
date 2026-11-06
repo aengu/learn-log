@@ -5,7 +5,9 @@ from django.conf import settings
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from ..models import DailyJournal, ExerciseAttempt, LearningLog
+from practice.models import ExerciseAttempt
+
+from ..models import DailyJournal, LearningLog
 
 
 class JournalService:

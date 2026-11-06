@@ -4,6 +4,8 @@ LLM/DB 호출은 전부 모킹: 노드가 올바른 순서·인자로 서비스 
 """
 from unittest.mock import Mock, patch
 
+import pytest
+
 from search.services import LearnlogService
 from search.services.search_agent import build_search_agent
 
@@ -23,6 +25,37 @@ def run_agent(service, **state):
 
 
 class TestRouting:
+    def test_설명중심과_스택을_생성에_전달(self):
+        service = make_service(route={
+            'use_logs': False, 'need_web': False, 'reason': '쿼리 작성',
+            'answer_focus': 'implementation', 'example_stack': 'sql',
+        })
+        result = run_agent(service)
+        assert result['answer_focus'] == 'implementation'
+        assert result['example_stack'] == 'sql'
+        kwargs = service.generate_answer_stream.call_args.kwargs
+        assert kwargs['answer_focus'] == 'implementation'
+        assert kwargs['example_stack'] == 'sql'
+
+    def test_꼬리질문과_사용자지침을_라우터에_전달(self):
+        service = make_service()
+        parent = Mock(pk=7)
+        run_agent(service, parent=parent, custom_instructions='Java로 설명해주세요')
+        service.decide_route.assert_called_once_with(
+            '테스트 질문입니다', ['로그1', '로그2'],
+            parent=parent, custom_instructions='Java로 설명해주세요',
+        )
+
+    def test_라우팅후에도_토큰을_개별_스트리밍(self):
+        service = make_service()
+        events = list(build_search_agent(service).stream(
+            {'query': '테스트 질문입니다'}, stream_mode='custom',
+        ))
+        assert events == [{'token': '답'}, {'token': '변'}]
+        kwargs = service.generate_answer_stream.call_args.kwargs
+        assert kwargs['answer_focus'] == 'auto'
+        assert kwargs['example_stack'] == 'auto'
+
     def test_웹_필요시_웹검색_후_생성(self):
         service = make_service(route={'use_logs': True, 'need_web': True, 'reason': ''})
         result = run_agent(service)
@@ -95,8 +128,42 @@ class TestDecideRoute:
         decision = self._decide(side_effect=RuntimeError('LLM 장애'))
         assert decision['use_logs'] is True
         assert decision['need_web'] is True
+        assert decision['answer_focus'] == 'auto'
+        assert decision['example_stack'] == 'auto'
 
     def test_응답에_키_누락시_기본값_True(self):
         decision = self._decide(return_value={'reason': '근거만 있는 응답'})
         assert decision['use_logs'] is True
         assert decision['need_web'] is True
+        assert decision['answer_focus'] == 'auto'
+        assert decision['example_stack'] == 'auto'
+
+    @pytest.mark.parametrize('focus, stack', [
+        ('concept', 'auto'), ('mechanism', 'sql'), ('implementation', 'django'),
+        ('comparison', 'python'), ('troubleshooting', 'auto'), ('auto', 'auto'),
+    ])
+    def test_허용된_선택값을_유지(self, focus, stack):
+        decision = self._decide(return_value={'answer_focus': focus, 'example_stack': stack})
+        assert decision['answer_focus'] == focus
+        assert decision['example_stack'] == stack
+
+    @pytest.mark.parametrize('invalid', [None, 'javascript', '', [], {}, 123])
+    def test_잘못된_선택값은_검색판단을_유지하고_auto(self, invalid):
+        decision = self._decide(return_value={
+            'use_logs': False, 'need_web': False,
+            'answer_focus': invalid, 'example_stack': invalid,
+        })
+        assert decision['use_logs'] is False
+        assert decision['need_web'] is False
+        assert decision['answer_focus'] == 'auto'
+        assert decision['example_stack'] == 'auto'
+
+    def test_라우터프롬프트에_부모대화와_지침_포함(self):
+        parent = Mock(query='2PC가 뭐야?', ai_response='코디네이터와 참여자 설명')
+        service = LearnlogService.__new__(LearnlogService)
+        with patch.object(service, '_call_groq_json', return_value={}) as call:
+            service.decide_route('그럼 구현은?', [], parent=parent, custom_instructions='Java로 설명')
+        prompt = call.call_args.args[0]
+        assert '2PC가 뭐야?' in prompt
+        assert '코디네이터와 참여자 설명' in prompt
+        assert 'Java로 설명' in prompt

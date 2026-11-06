@@ -1,9 +1,13 @@
 [run]
 branch = True
-source = search
+source =
+    search
+    practice
 omit =
     search/migrations/*
     search/tests/*
+    practice/migrations/*
+    practice/tests/*
     search/experiments/*
 
 [report]

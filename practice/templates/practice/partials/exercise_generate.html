@@ -7,7 +7,7 @@
 {% endif %}
 <div class="flex flex-wrap gap-2">
     {% for type_value, type_label in exercise_types %}
-    <form hx-post="{% url 'search:exercise_generate' log.id %}"
+    <form hx-post="{% url 'practice:exercise_generate' log.id %}"
           hx-target="#exercise-gen-feedback-{{ log.id }}"
           hx-swap="innerHTML"
           hx-indicator="#exercise-gen-indicator-{{ log.id }}"

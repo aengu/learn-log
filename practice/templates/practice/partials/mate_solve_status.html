@@ -1,0 +1,10 @@
+<div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3">
+    {% if mate_attempt.status == 'ready' %}
+    <span class="text-sm">러닝메이트가 답을 제출했어요. 내 풀이를 끝내면 결과가 공개돼요.</span>
+    {% elif mate_attempt.status == 'failed' %}
+    <span class="text-sm text-warning">이번에는 러닝메이트가 풀이를 끝내지 못했어요.</span>
+    {% else %}
+    <span class="loading loading-dots loading-sm"></span>
+    <span class="text-sm">러닝메이트도 같은 문제를 푸는 중이에요.</span>
+    {% endif %}
+</div>
