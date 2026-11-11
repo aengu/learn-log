@@ -1,20 +1,14 @@
 """연습문제 페이지와 HTMX API의 통합 테스트."""
 
 import json
-from concurrent.futures import ThreadPoolExecutor
-from threading import Event
-from time import monotonic, sleep
 
 import pytest
-from django.db import close_old_connections, connection
-from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from practice.models import BKTObservation, Concept, ConceptMastery, Exercise, ExerciseAttempt, MateAttempt
+from practice.models import Exercise, ExerciseAttempt, MateAttempt
 from practice.services import ExerciseService, LearningMateService
 
-from search.models import Streak
 from search.tests.factories import LearningLogFactory
 
 
@@ -249,38 +243,6 @@ class TestExerciseAttemptAPI:
         assert "러닝메이트" in second.content.decode()
         assert mate_attempt.user_attempt_id is not None
 
-    def test_link_failure_rolls_back_attempt_review_and_bkt(self, client, monkeypatch):
-        concept = Concept.objects.create(id='test.link', name='연결 개념')
-        content = path_content()
-        for step in content['steps']:
-            step.update(concept_id=concept.pk, concept_candidate=None, _concept_review={'status': 'approved'})
-        exercise = make_exercise('path_trace', content=content)
-        mate_attempt = MateAttempt.objects.create(exercise=exercise)
-        yesterday = timezone.now().date() - timezone.timedelta(days=1)
-        Streak.objects.update(current_streak=2, longest_streak=2, last_active_date=yesterday)
-        original_save = MateAttempt.save
-
-        def fail_link(instance, *args, **kwargs):
-            if kwargs.get('update_fields') == ['user_attempt']:
-                raise RuntimeError('대결 연결 실패')
-            return original_save(instance, *args, **kwargs)
-
-        monkeypatch.setattr(MateAttempt, 'save', fail_link)
-        response = client.post(reverse('practice:exercise_attempt', args=[exercise.pk]), {
-            'selected_indices': '[0, 1, 2]', 'mate_attempt_id': str(mate_attempt.pk),
-        })
-
-        assert '채점 오류: 대결 연결 실패' in response.content.decode()
-        assert not ExerciseAttempt.objects.filter(exercise=exercise).exists()
-        exercise.refresh_from_db()
-        mate_attempt.refresh_from_db()
-        assert exercise.review_interval == 1
-        assert mate_attempt.user_attempt_id is None
-        assert not BKTObservation.objects.exists()
-        assert not ConceptMastery.objects.exists()
-        assert Streak.objects.get().last_active_date == yesterday
-        assert Streak.objects.get().current_streak == 2
-
     def test_reveal_returns_answer_and_model_answer(self, client):
         exercise = make_exercise()
 
@@ -355,80 +317,6 @@ class TestExerciseAttemptAPI:
         assert response.status_code == 200
         assert "채점 오류: 채점기 오류" in response.content.decode()
         assert ExerciseAttempt.objects.count() == 0
-
-
-@pytest.mark.django_db(transaction=True)
-def test_concurrent_duel_submissions_save_only_one_attempt(monkeypatch):
-    """첫 요청의 저장과 연결 사이에 둘째 요청을 넣고 실제 DB 잠금 대기를 확인한다."""
-    if connection.vendor != 'postgresql':
-        pytest.skip('실제 PostgreSQL 트랜잭션·잠금 검증')
-    concept = Concept.objects.create(id='test.duel', name='대결 개념')
-    content = path_content()
-    for step in content['steps']:
-        step.update(concept_id=concept.pk, concept_candidate=None, _concept_review={'status': 'approved'})
-    exercise = make_exercise('path_trace', content=content)
-    mate = MateAttempt.objects.create(exercise=exercise)
-    url = reverse('practice:exercise_attempt', args=[exercise.pk])
-    first_saved, release_first, second_started = Event(), Event(), Event()
-    second_pid, save_calls = [], []
-    original_save = ExerciseService.save_attempt
-
-    def pause_after_save(service, *args, **kwargs):
-        attempt = original_save(service, *args, **kwargs)
-        save_calls.append(attempt.pk)
-        if not first_saved.is_set():
-            first_saved.set()
-            if not release_first.wait(10):
-                raise RuntimeError('첫 요청 해제 시간 초과')
-        return attempt
-
-    monkeypatch.setattr(ExerciseService, 'save_attempt', pause_after_save)
-
-    def post(selected, started=None):
-        close_old_connections()
-        try:
-            if started:
-                with connection.cursor() as cursor:
-                    cursor.execute('SELECT pg_backend_pid()')
-                    second_pid.append(cursor.fetchone()[0])
-                started.set()
-            response = Client().post(url, {
-                'selected_indices': json.dumps(selected), 'mate_attempt_id': str(mate.pk),
-            })
-            return response.status_code, response.content.decode()
-        finally:
-            connection.close()
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(post, [0, 1, 2])
-        try:
-            assert first_saved.wait(5)
-            second = pool.submit(post, [3, 3, 3], second_started)
-            assert second_started.wait(5)
-            deadline = monotonic() + 5
-            blocked = False
-            while monotonic() < deadline:
-                with connection.cursor() as cursor:
-                    cursor.execute('SELECT pg_blocking_pids(%s)', [second_pid[0]])
-                    blocked = bool(cursor.fetchone()[0])
-                if blocked or second.done():
-                    break
-                sleep(.01)
-            assert blocked, '둘째 요청이 첫 요청의 커밋까지 기다려야 합니다.'
-        finally:
-            release_first.set()
-        responses = [first.result(timeout=10), second.result(timeout=10)]
-
-    assert all(status == 200 and '통과!' in html for status, html in responses)
-    assert len(save_calls) == 1
-    attempt = ExerciseAttempt.objects.get(exercise=exercise)
-    assert attempt.user_answer == {'selected_indices': [0, 1, 2]}
-    exercise.refresh_from_db()
-    mate.refresh_from_db()
-    assert mate.user_attempt_id == attempt.pk
-    assert exercise.review_interval == 3
-    assert BKTObservation.objects.filter(attempt=attempt).count() == 3
-    assert ConceptMastery.objects.get(concept=concept).observation_count == 3
 
 
 class TestMateAttemptAPI:

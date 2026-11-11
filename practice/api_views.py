@@ -1,6 +1,5 @@
 import json
 
-from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.views import View
@@ -9,7 +8,6 @@ from search.models import LearningLog
 
 from .models import Exercise, ExerciseAttempt, MateAttempt
 from .services import ExerciseService, LearningMateService
-from .services.bkt_lock import acquire_bkt_lock
 
 EXERCISE_TYPES = Exercise.EXERCISE_TYPE_CHOICES
 
@@ -118,37 +116,43 @@ class ExerciseAttemptAPIView(View):
         try:
             mate_attempt = None
             mate_attempt_pk = request.POST.get('mate_attempt_id', '').strip()
-            with transaction.atomic():
-                # 모든 경로에서 공통 잠금 → 대결 행 순서로 획득한다.
-                # 저장뿐 아니라 중복 확인과 대결 연결까지 같은 트랜잭션으로 보호한다.
-                acquire_bkt_lock()
-                if mate_attempt_pk and exercise.exercise_type == 'path_trace':
-                    mate_attempt = MateAttempt.objects.select_for_update().filter(
-                        pk=mate_attempt_pk,
-                        exercise=exercise,
-                    ).first()
+            if mate_attempt_pk and exercise.exercise_type == 'path_trace':
+                mate_attempt = MateAttempt.objects.select_related('user_attempt').filter(
+                    pk=mate_attempt_pk,
+                    exercise=exercise,
+                ).first()
 
-                # 잠금을 기다린 요청은 첫 요청이 커밋한 연결을 다시 확인한다.
-                if mate_attempt and mate_attempt.user_attempt_id:
-                    attempt = mate_attempt.user_attempt
-                    exercise = attempt.exercise
-                    evaluation = {
+            # HTMX 재요청·중복 클릭은 같은 대결의 기존 결과를 반환한다.
+            # 새 ExerciseAttempt 생성과 복습 주기 중복 갱신을 막는다.
+            if mate_attempt and mate_attempt.user_attempt_id:
+                attempt = mate_attempt.user_attempt
+                return render(request, 'practice/partials/exercise_result.html', {
+                    'exercise': exercise,
+                    'attempt': attempt,
+                    'evaluation': {
                         'is_correct': attempt.is_correct,
                         'score': attempt.score,
                         'ai_feedback': attempt.ai_feedback,
-                    }
-                else:
-                    service = ExerciseService()
-                    # 채점은 외부 API 호출 없이 수행한다.
-                    evaluation = service.evaluate_attempt(exercise, user_answer)
-                    # 예상된 BKT 오류만 격리하며, 원본 풀이와 대결 연결은 함께 확정한다.
-                    attempt = service.save_attempt(exercise, user_answer, evaluation)
-                    exercise = attempt.exercise
-                    if mate_attempt:
-                        mate_attempt.user_attempt = attempt
-                        mate_attempt.save(update_fields=['user_attempt'])
-                        mate_attempt.refresh_from_db()
-            # 렌더링은 커밋·잠금 해제 후 수행한다.
+                    },
+                    'mate_attempt': mate_attempt,
+                    'mate_comparison_rows': LearningMateService.comparison_rows(
+                        mate_attempt
+                    ),
+                })
+
+            service = ExerciseService()
+            # 저장 전 채점: 정오답·점수·해설을 계산한다. 아직 풀이/BKT는 저장하지 않는다.
+            evaluation = service.evaluate_attempt(exercise, user_answer)
+            # 예상된 BKT 정합성 오류는 BKT만 롤백하고 원본 풀이·실패 기록을 보존한다.
+            # 예상하지 못한 오류는 전파되어 원본 저장도 롤백된다.
+            attempt = service.save_attempt(exercise, user_answer, evaluation)
+            exercise = attempt.exercise  # 잠금 후 다시 읽고 복습 주기를 갱신한 인스턴스
+            if mate_attempt:
+                # 위 저장 트랜잭션이 정상 종료된 뒤 수행하는 별도 DB 변경이다.
+                # 대결 연결 실패가 이미 저장한 풀이를 되돌리지는 않는다.
+                mate_attempt.user_attempt = attempt
+                mate_attempt.save(update_fields=['user_attempt'])
+                mate_attempt.refresh_from_db()
             return render(request, 'practice/partials/exercise_result.html', {
                 'exercise': exercise,
                 'attempt': attempt,
@@ -160,7 +164,7 @@ class ExerciseAttemptAPIView(View):
                 ),
             })
         except Exception as e:
-            # 위 atomic에서 전파된 예외라면 풀이·대결 연결이 함께 롤백된 상태다.
+            # save_attempt()에서 전파된 예외라면 해당 트랜잭션은 이미 롤백된 상태다.
             return HttpResponse(f'<div class="alert alert-error">채점 오류: {e}</div>')
 
 
