@@ -7,7 +7,7 @@ import pytest
 
 from practice.models import BKTObservation, Concept, ConceptMastery, Exercise, ExerciseAttempt, MateAttempt
 from practice.services.bkt_math import DEFAULT_PARAMETERS, MODEL_VERSION
-from practice.services.bkt_service import BKTService
+from practice.tests.bkt_helpers import record_with_lock
 from practice.services.learning_mate_service import LearningMateService
 
 from search.tests.factories import LearningLogFactory
@@ -180,13 +180,13 @@ class TestBKTCalibration:
         previous = ExerciseAttempt.objects.create(
             exercise=exercise, user_answer={'selected_indices': [0]}, score=1,
         )
-        BKTService.record_attempt(previous)
+        record_with_lock(previous)
         observation = previous.bkt_observations.get()
         mate = MateAttempt.objects.create(exercise=exercise)
         current = ExerciseAttempt.objects.create(
             exercise=exercise, user_answer={'selected_indices': [1, 0, 0]}, score=0,
         )
-        BKTService.record_attempt(current)
+        record_with_lock(current)
         service = LearningMateService.__new__(LearningMateService)
 
         result = service.estimate_step_probabilities(exercise, mate.created_at, 0.5)
@@ -217,7 +217,7 @@ class TestBKTCalibration:
         previous = ExerciseAttempt.objects.create(
             exercise=exercise, user_answer={'selected_indices': [0, 0]}, score=.5,
         )
-        BKTService.record_attempt(previous)
+        record_with_lock(previous)
         mate = MateAttempt.objects.create(exercise=exercise)
 
         result = LearningMateService.estimate_step_probabilities(exercise, mate.created_at, 0.5)
@@ -231,7 +231,7 @@ class TestBKTCalibration:
         previous = ExerciseAttempt.objects.create(
             exercise=exercise, user_answer={'selected_indices': [0]}, score=1,
         )
-        BKTService.record_attempt(previous)
+        record_with_lock(previous)
         previous.bkt_observations.update(model_version='old-version')
         mate = MateAttempt.objects.create(exercise=exercise)
 

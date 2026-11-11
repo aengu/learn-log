@@ -1,12 +1,18 @@
 """연습문제 페이지와 HTMX API의 통합 테스트."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from time import monotonic, sleep
 
 import pytest
+from django.db import close_old_connections, connection
+from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from practice.models import Exercise, ExerciseAttempt, MateAttempt
+from practice.models import BKTObservation, Concept, ConceptMastery, Exercise, ExerciseAttempt, MateAttempt
 from practice.services import ExerciseService, LearningMateService
 
 from search.tests.factories import LearningLogFactory
@@ -234,7 +240,8 @@ class TestExerciseAttemptAPI:
         }
 
         first = client.post(url, payload)
-        second = client.post(url, payload)
+        with CaptureQueriesContext(connection) as queries:
+            second = client.post(url, payload)
 
         mate_attempt.refresh_from_db()
         assert first.status_code == 200
@@ -242,6 +249,46 @@ class TestExerciseAttemptAPI:
         assert ExerciseAttempt.objects.filter(exercise=exercise).count() == 1
         assert "러닝메이트" in second.content.decode()
         assert mate_attempt.user_attempt_id is not None
+        # 기존 결과를 반환하는 경로는 BKT 공통 잠금까지 획득하지 않는다.
+        assert not any('practice_bktlock' in row['sql'].lower() for row in queries)
+
+    def test_new_submission_acquires_the_common_lock_only_once(self, client):
+        exercise = make_exercise('path_trace')
+        mate = MateAttempt.objects.create(exercise=exercise)
+        with CaptureQueriesContext(connection) as queries:
+            response = client.post(reverse('practice:exercise_attempt', args=[exercise.pk]), {
+                'selected_indices': '[0, 1, 2]', 'mate_attempt_id': str(mate.pk),
+            })
+        assert '통과!' in response.content.decode()
+        locks = [row['sql'] for row in queries
+                 if 'practice_bktlock' in row['sql'].lower() and 'FOR UPDATE' in row['sql']]
+        assert len(locks) == 1
+
+    def test_link_failure_rolls_back_attempt_review_and_bkt(self, client, monkeypatch):
+        concept = Concept.objects.create(id='test.link', name='연결 개념')
+        content = path_content()
+        for step in content['steps']:
+            step.update(concept_id=concept.pk, concept_candidate=None, _concept_review={'status': 'approved'})
+        exercise = make_exercise('path_trace', content=content)
+        mate = MateAttempt.objects.create(exercise=exercise)
+        original_save = MateAttempt.save
+
+        def fail_link(instance, *args, **kwargs):
+            if kwargs.get('update_fields') == ['user_attempt']:
+                raise RuntimeError('대결 연결 실패')
+            return original_save(instance, *args, **kwargs)
+
+        monkeypatch.setattr(MateAttempt, 'save', fail_link)
+        response = client.post(reverse('practice:exercise_attempt', args=[exercise.pk]), {
+            'selected_indices': '[0, 1, 2]', 'mate_attempt_id': str(mate.pk),
+        })
+        assert '채점 오류: 대결 연결 실패' in response.content.decode()
+        assert not ExerciseAttempt.objects.filter(exercise=exercise).exists()
+        assert not BKTObservation.objects.exists()
+        assert not ConceptMastery.objects.exists()
+        exercise.refresh_from_db()
+        mate.refresh_from_db()
+        assert exercise.review_interval == 1 and mate.user_attempt_id is None
 
     def test_reveal_returns_answer_and_model_answer(self, client):
         exercise = make_exercise()
@@ -317,6 +364,80 @@ class TestExerciseAttemptAPI:
         assert response.status_code == 200
         assert "채점 오류: 채점기 오류" in response.content.decode()
         assert ExerciseAttempt.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_duel_submissions_save_only_one_attempt(monkeypatch):
+    """저장과 대결 연결 사이에 두 번째 요청을 넣어 실제 행 잠금 대기를 검증한다."""
+    if connection.vendor != 'postgresql':
+        pytest.skip('실제 PostgreSQL 행 잠금 검증')
+    concept = Concept.objects.create(id='test.duel', name='대결 개념')
+    content = path_content()
+    for step in content['steps']:
+        step.update(concept_id=concept.pk, concept_candidate=None, _concept_review={'status': 'approved'})
+    exercise = make_exercise('path_trace', content=content)
+    mate = MateAttempt.objects.create(exercise=exercise)
+    url = reverse('practice:exercise_attempt', args=[exercise.pk])
+    saved, release, started = Event(), Event(), Event()
+    second_pid, calls = [], []
+    original_save = ExerciseService.save_attempt
+
+    def pause_after_save(service, *args, **kwargs):
+        attempt = original_save(service, *args, **kwargs)
+        calls.append(attempt.pk)
+        if not saved.is_set():
+            saved.set()
+            if not release.wait(10):
+                raise RuntimeError('첫 요청 해제 시간 초과')
+        return attempt
+
+    monkeypatch.setattr(ExerciseService, 'save_attempt', pause_after_save)
+
+    def post(selected, second=False):
+        close_old_connections()
+        try:
+            if second:
+                with connection.cursor() as cursor:
+                    cursor.execute('SELECT pg_backend_pid()')
+                    second_pid.append(cursor.fetchone()[0])
+                started.set()
+            return Client().post(url, {
+                'selected_indices': json.dumps(selected), 'mate_attempt_id': str(mate.pk),
+            }).content.decode()
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(post, [0, 1, 2])
+        try:
+            assert saved.wait(5)
+            second = pool.submit(post, [3, 3, 3], True)
+            assert started.wait(5)
+            deadline, blocked = monotonic() + 5, False
+            while monotonic() < deadline:
+                with connection.cursor() as cursor:
+                    cursor.execute('SELECT pg_blocking_pids(%s)', [second_pid[0]])
+                    blocked = bool(cursor.fetchone()[0])
+                if blocked or second.done():
+                    break
+                sleep(.01)
+            assert blocked, '두 번째 요청은 첫 번째 요청의 대결 행 잠금에서 기다려야 합니다.'
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT query FROM pg_stat_activity WHERE pid = %s', [second_pid[0]])
+                assert 'search_mateattempt' in cursor.fetchone()[0]
+        finally:
+            release.set()
+        assert '통과!' in first.result(timeout=10)
+        assert '통과!' in second.result(timeout=10)
+    assert len(calls) == 1
+    attempt = ExerciseAttempt.objects.get(exercise=exercise)
+    mate.refresh_from_db()
+    exercise.refresh_from_db()
+    assert mate.user_attempt_id == attempt.pk
+    assert attempt.user_answer == {'selected_indices': [0, 1, 2]}
+    assert exercise.review_interval == 3
+    assert BKTObservation.objects.filter(attempt=attempt).count() == 3
+    assert ConceptMastery.objects.get(concept=concept).observation_count == 3
 
 
 class TestMateAttemptAPI:

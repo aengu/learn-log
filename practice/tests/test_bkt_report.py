@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from practice.models import BKTObservation, Concept, ConceptMastery, Exercise, ExerciseAttempt
 from practice.services.bkt_report import concept_report
-from practice.services.bkt_service import BKTService
+from practice.tests.bkt_helpers import record_with_lock
 from practice.templatetags.bkt_display import percent
 from search.tests.factories import LearningLogFactory
 
@@ -34,7 +34,7 @@ def observe(exercise, choice):
         exercise=exercise, user_answer={'selected_indices': [choice]},
         score=int(choice == 0), is_correct=choice == 0,
     )
-    BKTService.record_attempt(attempt)
+    record_with_lock(attempt)
     return attempt.bkt_observations.get()
 
 

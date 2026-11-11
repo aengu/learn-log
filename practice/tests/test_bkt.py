@@ -14,6 +14,7 @@ from practice.models import BKTObservation, Concept, ConceptMastery, Exercise, E
 from practice.services.bkt_math import BKTParameters, update_mastery
 from practice.services.bkt_service import BKTService
 from practice.services.exercise_service import ExerciseService
+from practice.tests.bkt_helpers import record_with_lock
 from search.tests.factories import LearningLogFactory
 
 
@@ -93,7 +94,7 @@ class TestBKTService:
         attempt = make_attempt(steps, [0] * len(steps), score=0, is_correct=False)
         before = deepcopy(attempt.exercise.content)
 
-        assert BKTService.record_attempt(attempt) == 1
+        assert record_with_lock(attempt) == 1
 
         observation = BKTObservation.objects.get()
         assert observation.step_index == 0
@@ -112,7 +113,7 @@ class TestBKTService:
     def test_unanswered_or_invalid_selection_is_not_counted_as_wrong(self, selected):
         concept = make_concept()
         attempt = make_attempt([make_step(concept.pk)], selected)
-        assert BKTService.record_attempt(attempt) == 0
+        assert record_with_lock(attempt) == 0
         assert not ConceptMastery.objects.exists()
         assert not BKTObservation.objects.exists()
 
@@ -120,18 +121,18 @@ class TestBKTService:
         concept = make_concept()
         step = make_step(concept.pk)
         step['correct_answer'] = '실제 보기와 불일치'
-        assert BKTService.record_attempt(make_attempt([step], [0])) == 0
+        assert record_with_lock(make_attempt([step], [0])) == 0
 
     def test_multiple_steps_update_same_concept_in_order_and_are_idempotent(self):
         concept = make_concept()
         attempt = make_attempt([make_step(concept.pk), make_step(concept.pk)], [0, 1])
-        assert BKTService.record_attempt(attempt) == 2
+        assert record_with_lock(attempt) == 2
         first, second = list(BKTObservation.objects.all())
         assert second.mastery_before == first.mastery_after
         assert second.is_correct is False
         assert second.mastery_after == pytest.approx(update_mastery(first.mastery_after, False)['mastery_after'])
         snapshot = list(ConceptMastery.objects.values())
-        assert BKTService.record_attempt(attempt) == 0
+        assert record_with_lock(attempt) == 0
         assert list(ConceptMastery.objects.values()) == snapshot
         assert BKTObservation.objects.count() == 2
         state = ConceptMastery.objects.get()
@@ -140,7 +141,7 @@ class TestBKTService:
     def test_database_rejects_duplicate_attempt_step(self):
         concept = make_concept()
         attempt = make_attempt([make_step(concept.pk)], [0])
-        BKTService.record_attempt(attempt)
+        record_with_lock(attempt)
         duplicate = BKTObservation.objects.get()
         duplicate.pk = None
         with pytest.raises(IntegrityError), transaction.atomic():
@@ -151,9 +152,9 @@ class TestBKTService:
         concept = make_concept()
         older = make_attempt([make_step(concept.pk)], [0])
         newer = make_attempt([make_step(concept.pk)], [1])
-        BKTService.record_attempt(newer)
+        record_with_lock(newer)
         with pytest.raises(ValueError, match='시간순'):
-            BKTService.record_attempt(older)
+            record_with_lock(older)
         assert BKTObservation.objects.count() == 1
         result = BKTService.rebuild(apply=True)
         assert result['observations'] == 2
@@ -182,7 +183,7 @@ class TestBKTService:
     def test_rebuild_withdraws_later_held_observation(self):
         concept = make_concept()
         attempt = make_attempt([make_step(concept.pk)], [0])
-        BKTService.record_attempt(attempt)
+        record_with_lock(attempt)
         attempt.exercise.content['steps'][0]['_concept_review']['status'] = 'on_hold'
         attempt.exercise.save(update_fields=['content'])
         assert BKTService.rebuild(apply=True)['observations'] == 0
@@ -192,7 +193,7 @@ class TestBKTService:
     def test_rebuild_does_not_regrade_old_answer_against_changed_question(self):
         concept = make_concept()
         attempt = make_attempt([make_step(concept.pk)], [0])
-        BKTService.record_attempt(attempt)
+        record_with_lock(attempt)
         before = list(BKTObservation.objects.values())
         step = attempt.exercise.content['steps'][0]
         step['correct_index'], step['correct_answer'] = 1, step['choices'][1]
@@ -205,11 +206,11 @@ class TestBKTService:
     def test_deleted_source_requires_rebuild_and_rebuild_removes_stale_state(self):
         concept = make_concept()
         attempt = make_attempt([make_step(concept.pk)], [0])
-        BKTService.record_attempt(attempt)
+        record_with_lock(attempt)
         attempt.delete()
         newer = make_attempt([make_step(concept.pk)], [1])
         with pytest.raises(ValueError, match='이력이 변경'):
-            BKTService.record_attempt(newer)
+            record_with_lock(newer)
         BKTService.rebuild(apply=True)
         state = ConceptMastery.objects.get()
         assert state.observation_count == 1
@@ -238,7 +239,7 @@ class TestBKTService:
         attempt = make_attempt([], [])
         attempt.exercise.exercise_type = 'generation_compare'
         attempt.exercise.save(update_fields=['exercise_type'])
-        assert BKTService.record_attempt(attempt) == 0
+        assert record_with_lock(attempt) == 0
 
     def test_command_defaults_to_preview_and_apply_is_explicit(self):
         concept = make_concept()
@@ -260,7 +261,7 @@ def test_concurrent_same_attempt_is_only_counted_once():
         close_old_connections()
         try:
             stored = ExerciseAttempt.objects.select_related('exercise').get(pk=attempt.pk)
-            return BKTService.record_attempt(stored)
+            return record_with_lock(stored)
         finally:
             connection.close()
 

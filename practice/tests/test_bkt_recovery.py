@@ -18,6 +18,7 @@ from practice.services.bkt_service import BKTConsistencyError, BKTService
 from practice.services.exercise_service import ExerciseService
 from practice.services.learning_mate_service import LearningMateService
 from practice.tests.test_bkt import make_attempt, make_concept, make_step
+from practice.tests.bkt_helpers import capture_with_lock, record_with_lock
 from search.models import Streak
 
 
@@ -31,7 +32,7 @@ def submit(exercise, selected=None):
 def failed_pair():
     a, b = make_concept('test.a'), make_concept('test.b')
     initial = make_attempt([make_step(b.pk)], [0])
-    BKTService.record_attempt(initial)
+    record_with_lock(initial)
     ConceptMastery.objects.filter(concept=b).update(model_version='old')
     source = make_attempt([make_step(a.pk), make_step(b.pk)], [0, 0])
     Streak.objects.update(current_streak=2, longest_streak=2,
@@ -175,7 +176,7 @@ class TestBKTRecovery:
     def test_history_mismatch_is_recorded_without_losing_the_submission(self):
         concept = make_concept()
         source = make_attempt([make_step(concept.pk)], [0])
-        BKTService.record_attempt(source)
+        record_with_lock(source)
         ConceptMastery.objects.update(observation_count=9)
         attempt = submit(source.exercise)
         assert attempt.bkt_failure.error_code == 'history_mismatch'
@@ -185,7 +186,7 @@ class TestBKTRecovery:
     def test_actual_database_error_is_not_misclassified_as_recoverable(self):
         concept = make_concept()
         source = make_attempt([make_step(concept.pk)], [0])
-        BKTService.record_attempt(source)
+        record_with_lock(source)
         original_count = ExerciseAttempt.objects.count()
 
         @transaction.atomic
@@ -256,7 +257,7 @@ def test_shared_lock_serializes_failure_rebuild_submit_and_source_edit(first):
                     pass
 
                 LockedEditView().changeform_view(SimpleNamespace(method='POST'))
-                fn = lambda: BKTService.capture_attempt(ExerciseAttempt.objects.get(pk=source.pk))
+                fn = lambda: capture_with_lock(ExerciseAttempt.objects.get(pk=source.pk))
             future = pool.submit(worker, fn, started, pid)
             assert started.wait(5)
             assert_waiting_on_lock(pid[0])

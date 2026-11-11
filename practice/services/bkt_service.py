@@ -24,7 +24,7 @@ class BKTService:
     @transaction.atomic
     def capture_attempt(cls, attempt):
         """내부 savepoint가 롤백된 뒤에도 공통 잠금과 원본 풀이는 유지한다."""
-        acquire_bkt_lock()
+        # 같은 트랜잭션에서 공통 잠금을 먼저 획득해야 하며, 잠금 없이 직접 호출하면 동시성 안전성을 보장하지 않는다.
         attempt.exercise = Exercise.objects.select_for_update().get(pk=attempt.exercise_id)
         active_ids = set(Concept.objects.filter(is_active=True).values_list('pk', flat=True))
         steps = list(cls._eligible_steps(attempt, active_ids))
@@ -125,9 +125,7 @@ class BKTService:
     @transaction.atomic
     def record_attempt(cls, attempt):
         """같은 풀이·문항의 중복 반영을 막고, 신규 관측만 시간순으로 추가한다."""
-        # capture_attempt()이 이 savepoint 바깥에서 이미 공통 잠금을 보유한다.
-        # 직접 호출하는 관리/테스트 경로도 동일한 잠금 규칙을 따른다.
-        acquire_bkt_lock()
+        # 같은 트랜잭션에서 공통 잠금을 먼저 획득해야 하며, 잠금 없이 직접 호출하면 동시성 안전성을 보장하지 않는다.
         attempt.exercise = Exercise.objects.select_for_update().get(pk=attempt.exercise_id)
         if attempt.exercise.exercise_type != 'path_trace':
             return 0
