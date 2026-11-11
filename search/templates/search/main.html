@@ -64,7 +64,7 @@
                             id="custom-instructions"
                             class="textarea textarea-bordered w-full h-40 text-sm font-mono resize-y"
                             placeholder="프롬프트 지시사항을 수정하세요..."></textarea>
-                        <p class="text-xs text-base-content/40 mt-1">비워두면 기본 프롬프트를 사용합니다.</p>
+                        <p class="text-xs text-base-content/40 mt-1">기본 문구를 수정한 경우에만 우선 적용합니다. 비워두거나 수정하지 않으면 질문에 맞게 자동으로 설명합니다.</p>
                     </div>
                 </form>
             </div>
@@ -187,7 +187,8 @@ function submitQuery(query, parentPk) {
         formData.append('parent_pk', parentPk);
     }
     const customInstructions = document.getElementById('custom-instructions').value.trim();
-    if (customInstructions) {
+    // 편집란을 열어 자동으로 채워진 기본 문구는 사용자 지정 지침으로 보내지 않는다.
+    if (customInstructions && customInstructions !== DEFAULT_INSTRUCTIONS.trim()) {
         formData.append('custom_instructions', customInstructions);
     }
 

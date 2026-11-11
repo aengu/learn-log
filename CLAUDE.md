@@ -34,14 +34,25 @@ docker compose exec web python manage.py dbpush   # 로컬 → Render
 
 ```
 search/
-├── models.py           # LearningLog, Exercise, ExerciseAttempt, Streak
+├── models.py           # LearningLog, Tag, Reference, Streak, DailyJournal
 ├── views.py            # 페이지 뷰
-├── api_views.py        # API 뷰 (질문 생성, 채점 등)
-├── services/           # LLM 호출, 연습문제 생성/채점
+├── api_views.py        # 질문 생성, 학습 로그, 일일 학습일지 API
+├── services/           # 학습 로그 생성·검색, 일일 학습일지
 ├── signals.py          # Streak 자동 갱신 (post_save)
 ├── templates/search/   # 템플릿 (DaisyUI 컴포넌트 사용)
 └── tests/              # pytest + factory-boy
+
+practice/
+├── models.py           # Exercise, ExerciseAttempt, MateAttempt
+├── views.py            # 연습문제 목록·풀이 페이지
+├── api_views.py        # 출제·채점·러닝메이트 API
+├── services/           # 문제 출제·채점·복습, 러닝메이트
+├── templates/practice/ # 연습문제 화면과 HTMX partial
+└── tests/              # 연습문제·러닝메이트 테스트
 ```
+
+- 연습문제 URL namespace는 `practice`. 실제 `/exercises/`, `/api/exercises/` 주소는 유지.
+- 앱 이동 시 기존 `search_exercise`, `search_exerciseattempt`, `search_mateattempt` 테이블을 유지한다.
 
 ## Principles (based on Karpathy's observations)
 

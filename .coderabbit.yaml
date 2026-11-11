@@ -29,10 +29,11 @@ reviews:
     - "!htmlcov/**"
     - "!staticfiles/**"
     - "!search/migrations/**"
+    - "!practice/migrations/**"
     - "!**/*.lock"
 
   path_instructions:
-    - path: "search/tests/**"
+    - path: "{search,practice}/tests/**"
       instructions: |
         pytest와 pytest-django 테스트를 검토한다.
         - 테스트가 구현을 그대로 따라 쓰거나 단순히 줄만 실행하지 않고, 사용자에게 중요한 동작을 구체적으로 assert하는지 확인한다.
@@ -43,7 +44,7 @@ reviews:
         - 일반 pytest에서는 Groq, Mistral, Tavily 실제 호출을 금지한다. 실제 외부 API 호출은 healthcheck 마커 테스트로만 허용한다.
         - 커버리지 숫자만 높이는 테스트보다 비즈니스 규칙과 회귀 위험을 보호하는 테스트를 우선한다.
 
-    - path: "search/**/*.py"
+    - path: "{search,practice}/**/*.py"
       instructions: |
         Django 서비스의 데이터 흐름과 비즈니스 규칙을 중심으로 검토한다.
         - 사용자 입력 검증, 객체 없음 처리, JSON 파싱, 점수 계산, 간격 반복 상태 변경의 경계 사례를 확인한다.

@@ -43,7 +43,7 @@ from search.experiments._common import (           # noqa: E402
     ensure_results_dir,
     timestamp,
 )
-from search.services.exercise_service import ExerciseService   # noqa: E402
+from practice.services.exercise_service import ExerciseService   # noqa: E402
 
 PACE_SEC = float(os.environ.get("PACE_SEC", 25))
 DEFAULT_ITERATIONS = 1

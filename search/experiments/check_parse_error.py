@@ -20,7 +20,7 @@ import json
 import textwrap
 
 from search.models import LearningLog
-from search.services import ExerciseService
+from practice.services import ExerciseService
 
 # ── 설정 ───────────────────────────────────────────────
 N = 10            # 시도 횟수 (PARSE ERROR가 잘 발생하려면 5~10회 권장)

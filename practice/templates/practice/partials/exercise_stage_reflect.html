@@ -14,7 +14,7 @@
     {% endif %}
 
     <!-- 회고 textarea -->
-    <form hx-post="{% url 'search:exercise_attempt' exercise.pk %}"
+    <form hx-post="{% url 'practice:exercise_attempt' exercise.pk %}"
           hx-target="#stage-area"
           hx-swap="outerHTML">
         {% csrf_token %}

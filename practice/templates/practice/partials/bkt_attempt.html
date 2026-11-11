@@ -1,0 +1,39 @@
+{% load bkt_display %}
+<details class="mt-4 border border-base-300 rounded-box p-4">
+    <summary class="cursor-pointer font-semibold">숙련도 변화 · BKT</summary>
+    <p class="text-xs text-base-content/60 mt-3">승인된 문항만 반영합니다. 숙련도는 관측 기반 추정치이며, 실제 이해도나 실수 원인을 확정하지 않습니다.</p>
+    {% if attempt.bkt_failure %}
+    <div class="mt-3 text-sm">
+        {% if not attempt.bkt_failure.resolved_at %}
+        <p class="text-warning">BKT 반영 보류 · 풀이와 스트릭은 저장됐지만 숙련도는 갱신되지 않았습니다.</p>
+        <p>{{ attempt.bkt_failure.error_message }}</p>
+        {% else %}
+        <p>재계산 처리 완료 · 문항별 반영 또는 제외 결과를 확인하세요.</p>
+        {% endif %}
+        {% for item in attempt.bkt_failure.steps.all %}
+        <p class="mt-1">{{ item.step_index|add:1 }}번 · {{ item.concept.name }} · {{ item.get_status_display }}
+            {% if item.status == 'pending' %}
+                {% if item.concept.user_mastery %} · 이전 저장 숙련도 {{ item.concept.user_mastery.mastery|percent }}{% endif %}
+                <span class="text-warning">(누락된 풀이가 있어 현재 숙련도로 해석할 수 없습니다.)</span>
+            {% endif %}
+        </p>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% for observation in attempt.bkt_observations.all %}
+    <div class="border-t border-base-300 mt-3 pt-3">
+        <p class="font-medium">{{ observation.step_index|add:1 }}번 · {{ observation.concept.name }} · {% if observation.is_correct %}정답{% else %}오답{% endif %}</p>
+        <p class="text-sm mt-1">풀이 전 {{ observation.mastery_before|percent }} → 풀이 후 {{ observation.mastery_after|percent }}</p>
+        <p class="text-sm text-base-content/60">정오답 반영 직후 {{ observation.mastery_posterior|percent }} · 풀이 전 예상 정답률 {{ observation.predicted_correct|percent }}</p>
+        <details class="mt-2">
+            <summary class="cursor-pointer text-sm">계산에 사용한 파라미터</summary>
+            {% include 'practice/partials/bkt_parameters.html' with parameters=observation.parameters %}
+        </details>
+    </div>
+    {% empty %}
+    {% if not attempt.bkt_failure %}
+    <p class="text-sm mt-3">BKT 미반영: 승인된 개념 문항의 유효한 풀이 기록이 없습니다.</p>
+    {% endif %}
+    {% endfor %}
+    <a class="link text-sm inline-block mt-3" href="{% url 'search:stats' %}#bkt-report">개념별 숙련도 그래프 보기</a>
+</details>

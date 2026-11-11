@@ -175,11 +175,11 @@ class LearnlogService:
 
     # ── 에이전트: 라우팅 판단 (search_agent의 router 노드에서 호출) ──
 
-    def decide_route(self, query, retrieved_logs):
+    def decide_route(self, query, retrieved_logs, parent=None, custom_instructions=None):
         """
         라우터: 검색된 과거 로그를 답변 컨텍스트로 쓸지(use_logs),
-        웹 검색 보강이 필요한지(need_web)를 LLM이 판단.
-        실패 시 둘 다 True — 라우팅 도입 전 파이프라인과 동일한 안전 기본값.
+        웹 검색 보강 여부와 설명 중심·예제 스택을 기존 호출에서 함께 판단.
+        실패 시 검색은 둘 다 True, 설명 중심·스택은 auto로 처리한다.
         """
         log_lines = "\n".join(
             f"- {log.query}: {log.ai_response[:200]}"
@@ -190,6 +190,10 @@ class LearnlogService:
 
             질문: {query}
 
+            {self._build_conversation_context(parent)}
+            사용자 지정 답변 지침:
+            {custom_instructions or '(없음)'}
+
             과거 학습 기록 (제목: 내용 앞부분):
             {log_lines}
 
@@ -197,6 +201,8 @@ class LearnlogService:
             {{
               "use_logs": true/false,
               "need_web": true/false,
+              "answer_focus": "concept|mechanism|implementation|comparison|troubleshooting|auto 중 하나",
+              "example_stack": "sql|python|django|auto 중 하나",
               "reason": "판단 근거 한 문장"
             }}
 
@@ -207,17 +213,40 @@ class LearnlogService:
               기록이 질문의 답을 이미 충분히 담고 있을 때만 false.
               단, 구체적인 버전·설정/옵션 이름·API 시그니처·정확한 수치·최신 동향을 묻는
               질문은 기록이 충분해 보여도 true (기록은 LLM 생성물이라 공식 문서 대조 필요)
+            - answer_focus: 질문에서 가장 중요한 설명 목적 하나를 선택한다.
+              concept=정의·필요성, mechanism=동작 원리·처리 순서,
+              implementation=구현·사용법, comparison=차이·선택 기준,
+              troubleshooting=원인 진단·해결, auto=불명확하거나 복합적인 목적.
+              답변 전체를 해당 유형으로 제한하는 것이 아니라 설명 비중을 정한다.
+            - example_stack: 사용자 지정 지침과 현재 질문의 명시적 언어·스택을 우선한다.
+              꼬리질문의 생략된 대상은 이전 대화로 해석한다.
+              sql=쿼리·스키마·DB 동작을 SQL로 표현해야 하는 경우,
+              python=일반 로직·알고리즘을 Python으로 구현하는 경우,
+              django=ORM·뷰·Django API의 구현·사용법을 묻는 경우.
+              프로토콜·개념 설명처럼 특정 스택이 필요 없거나 모호하면 auto.
+              Java 등 다른 언어를 명시한 경우도 auto로 두어 사용자 요청을 보존한다.
+              과거 학습 기록에 Python·Django 코드가 있다는 이유만으로 스택을 선택하지 않는다.
+              예: '2PC가 뭐야?'=concept/auto, '중복 데이터를 조회하는 SQL'=implementation/sql,
+              'QuerySet으로 중복 조회'=implementation/django.
         """).strip()
         try:
-            result = self._call_groq_json(prompt, max_tokens=150)
+            result = self._call_groq_json(prompt, max_tokens=250)
+            focus = result.get('answer_focus')
+            stack = result.get('example_stack')
             return {
                 'use_logs': bool(result.get('use_logs', True)),
                 'need_web': bool(result.get('need_web', True)),
+                'answer_focus': focus if isinstance(focus, str) and focus in self.ANSWER_FOCUS_INSTRUCTIONS else 'auto',
+                'example_stack': stack if isinstance(stack, str) and stack in self.EXAMPLE_STACK_INSTRUCTIONS else 'auto',
                 'reason': result.get('reason', ''),
             }
         except Exception as e:
             print(f"라우팅 판단 오류: {e}")
-            return {'use_logs': True, 'need_web': True, 'reason': '판단 실패 — 기본 경로'}
+            return {
+                'use_logs': True, 'need_web': True,
+                'answer_focus': 'auto', 'example_stack': 'auto',
+                'reason': '판단 실패 — 기본 경로',
+            }
 
     def check_consistency(self, ai_response, retrieved_logs=None, retrieved_limit=500, search_results=None):
         """
@@ -363,13 +392,30 @@ class LearnlogService:
             print(f"검색어 변환 오류: {e}")
             return query
 
-    DEFAULT_INSTRUCTIONS = (
-        "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함. "
-        "코드 예시는 질문에 언어/스택 지정이 없으면 Python(백엔드 맥락은 Django) 기준으로. "
-        # grounding: 환각이 잘 생기는 '그럴듯한 디테일 지어내기' 차단
+    # 라우팅 전후 비교에서도 같은 근거 지침을 사용한다.
+    GROUNDING_INSTRUCTIONS = (
         "구체적인 버전·수치·설정 이름·API 이름은 참고 자료나 과거 기록에 근거가 있을 때만 단정하고, "
         "근거가 없으면 불확실하다고 명시할 것."
     )
+    DEFAULT_INSTRUCTIONS = (
+        "형식: 개념 → 동작 원리 → 코드 예시 → 주의사항. 코드에 주석 포함. "
+        "코드 예시는 질문에 언어/스택 지정이 없으면 Python(백엔드 맥락은 Django) 기준으로. "
+        + GROUNDING_INSTRUCTIONS
+    )
+    ANSWER_FOCUS_INSTRUCTIONS = {
+        'concept': '정의·필요성·핵심 특징을 중심으로 설명하세요.',
+        'mechanism': '동작 원리·처리 순서·상태 변화를 중심으로 설명하세요.',
+        'implementation': '실제 구현·사용 방법과 필요한 예제를 중심으로 설명하세요.',
+        'comparison': '차이·장단점·적용 조건과 선택 기준을 중심으로 설명하세요.',
+        'troubleshooting': '가능한 원인·확인 방법·해결 순서와 주의사항을 중심으로 설명하세요.',
+        'auto': '특정 설명 유형을 강제하지 말고 질문의 목적에 맞게 설명하세요.',
+    }
+    EXAMPLE_STACK_INSTRUCTIONS = {
+        'sql': '필요한 코드 예제는 Django ORM 대신 SQL로 표현하세요. DBMS 지정이 없으면 PostgreSQL 기준임을 명시하세요.',
+        'python': '필요한 코드 예제는 Python으로 표현하세요. 불필요한 Django 의존성을 추가하지 마세요.',
+        'django': '필요한 코드 예제는 Django ORM·뷰·API 등 질문에 해당하는 Django 기능으로 표현하세요.',
+        'auto': '특정 언어·프레임워크나 코드 예제를 강제하지 마세요. 프로토콜은 메시지 흐름 등 적합한 방식으로 설명하세요.',
+    }
 
     @staticmethod
     def _build_web_context(search_results):
@@ -408,10 +454,23 @@ class LearnlogService:
             f"[이전 답변] {parent.ai_response[:500]}\n\n"
         )
 
-    def _build_answer_prompt(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500):
+    def _build_answer_prompt(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500,
+                             answer_focus=None, example_stack=None):
         """답변 생성 프롬프트 조립"""
         context = self._build_web_context(search_results)
         instructions = custom_instructions.strip() if custom_instructions else self.DEFAULT_INSTRUCTIONS
+        if not custom_instructions and (answer_focus is not None or example_stack is not None):
+            # 기존 Python/Django 강제 지침과 충돌하지 않도록 라우팅 지침으로 대체한다.
+            focus = answer_focus if isinstance(answer_focus, str) and answer_focus in self.ANSWER_FOCUS_INSTRUCTIONS else 'auto'
+            stack = example_stack if isinstance(example_stack, str) and example_stack in self.EXAMPLE_STACK_INSTRUCTIONS else 'auto'
+            instructions = '\n'.join([
+                self.ANSWER_FOCUS_INSTRUCTIONS[focus],
+                self.EXAMPLE_STACK_INSTRUCTIONS[stack],
+                '설명 중심은 비중을 정하는 기준이며 필요한 다른 설명도 포함하세요. '
+                '현재 질문에 명시된 언어·스택과 답변 요청은 자동 선택보다 우선합니다. '
+                '코드는 필요한 경우에만 제시하고 핵심에 주석을 포함하세요.',
+                self.GROUNDING_INSTRUCTIONS,
+            ])
         conversation = self._build_conversation_context(parent)
         retrieved = self._build_retrieved_context(retrieved_logs, limit=retrieved_limit)
 
@@ -423,7 +482,8 @@ class LearnlogService:
             f"{instructions}"
         )
 
-    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500, meta=None):
+    def generate_answer_stream(self, query, search_results, custom_instructions=None, parent=None, retrieved_logs=None, retrieved_limit=500, meta=None,
+                               answer_focus=None, example_stack=None):
         """
         Groq API 스트리밍 답변 생성 — 토큰 단위로 yield.
         meta dict를 넘기면 마지막 이벤트의 finish_reason을 채워준다
@@ -431,7 +491,10 @@ class LearnlogService:
         실패는 예외로 전파한다 — 에러 문구를 토큰처럼 내보내면
         SSE 뷰가 정상 답변으로 알고 저장해버린다 (복습 대상이 됨).
         """
-        prompt = self._build_answer_prompt(query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit)
+        prompt = self._build_answer_prompt(
+            query, search_results, custom_instructions, parent, retrieved_logs, retrieved_limit,
+            answer_focus=answer_focus, example_stack=example_stack,
+        )
 
         try:
             # max_tokens 3000: gpt-oss는 서술이 길어 2000이면 매번 잘렸다.
