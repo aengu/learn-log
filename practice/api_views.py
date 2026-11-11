@@ -3,6 +3,7 @@ import json
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.utils.html import escape
 from django.views import View
 
 from search.models import LearningLog
@@ -36,7 +37,7 @@ class ExerciseGenerateAPIView(View):
             )
         except Exception as e:
             return HttpResponse(
-                f'<div class="alert alert-error">생성 오류: {e}</div>'
+                f'<div class="alert alert-error">생성 오류: {escape(str(e))}</div>'
             )
 
 
@@ -154,7 +155,7 @@ class ExerciseAttemptAPIView(View):
             })
         except Exception as e:
             # 위 atomic에서 전파된 예외라면 풀이·대결 연결이 함께 롤백된 상태다.
-            return HttpResponse(f'<div class="alert alert-error">채점 오류: {e}</div>')
+            return HttpResponse(f'<div class="alert alert-error">채점 오류: {escape(str(e))}</div>')
 
 
 class MateAttemptSolveAPIView(View):
@@ -209,5 +210,5 @@ class ExerciseCoachAPIView(View):
                 'comment': comment,
             })
         except Exception as e:
-            return HttpResponse(f'<div class="alert alert-warning">코멘트 생성 오류: {e}</div>')
+            return HttpResponse(f'<div class="alert alert-warning">코멘트 생성 오류: {escape(str(e))}</div>')
 

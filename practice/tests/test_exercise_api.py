@@ -440,6 +440,55 @@ def test_concurrent_duel_submissions_save_only_one_attempt(monkeypatch):
     assert ConceptMastery.objects.get(concept=concept).observation_count == 3
 
 
+class TestErrorResponseEscaping:
+    @pytest.mark.parametrize(('method', 'endpoint', 'label'), [
+        ('generate_exercise', 'practice:exercise_generate', '생성 오류'),
+        ('evaluate_attempt', 'practice:exercise_attempt', '채점 오류'),
+        ('generate_coach_comment', 'practice:exercise_coach', '코멘트 생성 오류'),
+    ])
+    def test_exception_html_is_returned_as_text(self, client, monkeypatch, method, endpoint, label):
+        exercise = make_exercise()
+        payload = '<img src=x onerror="alert(1)"> & \'오류\''
+
+        def fail(*args, **kwargs):
+            raise RuntimeError(payload)
+
+        monkeypatch.setattr(ExerciseService, method, fail)
+        if endpoint == 'practice:exercise_generate':
+            pk, data = exercise.learning_log_id, {'exercise_type': 'path_trace'}
+        elif endpoint == 'practice:exercise_coach':
+            attempt = ExerciseAttempt.objects.create(exercise=exercise, user_answer={})
+            pk, data = attempt.pk, {}
+        else:
+            pk, data = exercise.pk, {'stage': 'final'}
+
+        response = client.post(reverse(endpoint, args=[pk]), data)
+
+        html = response.content.decode()
+        assert response.status_code == 200
+        assert f'{label}:' in html
+        assert '<div class="alert alert-' in html  # 오류 박스의 HTML은 유지
+        assert payload not in html
+        assert '<img' not in html
+        assert '&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#x27;오류&#x27;' in html
+
+    def test_invalid_mate_id_in_real_django_exception_is_escaped(self, client):
+        exercise = make_exercise('path_trace')
+        payload = '<img src=x onerror=alert(1)>'
+
+        response = client.post(reverse('practice:exercise_attempt', args=[exercise.pk]), {
+            'selected_indices': '[0, 1, 2]', 'mate_attempt_id': payload,
+        })
+
+        html = response.content.decode()
+        assert response.status_code == 200
+        assert '채점 오류:' in html
+        assert 'expected a number' in html
+        assert payload not in html
+        assert '&lt;img src=x onerror=alert(1)&gt;' in html
+        assert not ExerciseAttempt.objects.filter(exercise=exercise).exists()
+
+
 class TestMateAttemptAPI:
     def test_solve_endpoint_runs_learning_mate_service(self, client, monkeypatch):
         exercise = make_exercise("path_trace")
