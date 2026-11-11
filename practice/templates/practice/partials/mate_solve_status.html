@@ -1,4 +1,9 @@
-<div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3">
+<div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3"
+     {% if mate_attempt.status == 'pending' or mate_attempt.status == 'solving' %}
+     hx-get="{% url 'practice:mate_attempt_solve' mate_attempt.pk %}"
+     hx-trigger="load delay:1s"
+     hx-swap="outerHTML"
+     {% endif %}>
     {% if mate_attempt.status == 'ready' %}
     <span class="text-sm">러닝메이트가 답을 제출했어요. 내 풀이를 끝내면 결과가 공개돼요.</span>
     {% elif mate_attempt.status == 'failed' %}

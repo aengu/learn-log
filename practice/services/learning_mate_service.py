@@ -6,6 +6,7 @@ from dataclasses import asdict
 
 from django.conf import settings
 from django.db import DatabaseError
+from django.db.models import Q
 from django.utils import timezone
 from groq import Groq
 from pgvector.django import CosineDistance
@@ -38,9 +39,27 @@ class LearningMateService:
     USER_LEVEL_WEIGHT = 0.8
     MIN_STEP_PROBABILITY = 0.15
     MAX_STEP_PROBABILITY = 0.95
+    STATE_TIMEOUT_SECONDS = 120
+    LLM_TIMEOUT_SECONDS = 30
 
     def __init__(self, client=None):
-        self.client = client or Groq(api_key=settings.GROQ_API_KEY)
+        self.client = client or Groq(
+            api_key=settings.GROQ_API_KEY, timeout=self.LLM_TIMEOUT_SECONDS, max_retries=0,
+        )
+
+    @classmethod
+    def refresh_status(cls, mate_attempt):
+        """조회 시 미시작·중단 작업을 정리한다. 엄격한 실행 기한이나 자동 재시도는 아니다."""
+        now = timezone.now()
+        cutoff = now - timezone.timedelta(seconds=cls.STATE_TIMEOUT_SECONDS)
+        MateAttempt.objects.filter(pk=mate_attempt.pk).filter(
+            Q(status='pending', created_at__lte=cutoff)
+            | Q(status='solving', started_at__lte=cutoff)
+            # 배포 중 구버전 워커가 만든 NULL 시작 시각은 생성 시각으로 복구한다.
+            | Q(status='solving', started_at__isnull=True, created_at__lte=cutoff)
+        ).update(status='failed', error_message='러닝메이트 풀이 대기 또는 처리 시간 초과', answered_at=now)
+        mate_attempt.refresh_from_db()
+        return mate_attempt
 
     @staticmethod
     def public_exercise_content(exercise):
@@ -258,13 +277,15 @@ class LearningMateService:
         return adjusted
 
     def solve_attempt(self, mate_attempt):
+        self.refresh_status(mate_attempt)
+        started_at = timezone.now()
         claimed = MateAttempt.objects.filter(
             pk=mate_attempt.pk,
             status='pending',
-        ).update(status='solving', error_message='')
+            created_at__gt=started_at - timezone.timedelta(seconds=self.STATE_TIMEOUT_SECONDS),
+        ).update(status='solving', started_at=started_at, error_message='')
         if not claimed:
-            mate_attempt.refresh_from_db()
-            return mate_attempt
+            return self.refresh_status(mate_attempt)
 
         exercise = mate_attempt.exercise
         try:
@@ -327,19 +348,23 @@ class LearningMateService:
             mate_attempt.prompt_version = self.PROMPT_VERSION
             mate_attempt.status = 'ready'
             mate_attempt.answered_at = timezone.now()
-            mate_attempt.save(update_fields=[
+            # 실패로 정리됐거나 다른 실행으로 바뀐 기록을 늦은 응답이 덮어쓰지 않는다.
+            MateAttempt.objects.filter(
+                pk=mate_attempt.pk, status='solving', started_at=started_at,
+            ).update(**{field: getattr(mate_attempt, field) for field in (
                 'answer', 'score', 'is_correct', 'context_snapshot',
                 'model_name', 'prompt_version', 'status', 'answered_at',
-            ])
+            )})
         except Exception as exc:
             logger.exception(
                 "러닝메이트 풀이 실패: mate_attempt_id=%s exercise_id=%s",
                 mate_attempt.pk,
                 exercise.pk,
             )
-            mate_attempt.status = 'failed'
-            mate_attempt.error_message = str(exc)
-            mate_attempt.save(update_fields=['status', 'error_message'])
+            MateAttempt.objects.filter(
+                pk=mate_attempt.pk, status='solving', started_at=started_at,
+            ).update(status='failed', error_message=str(exc), answered_at=timezone.now())
+        mate_attempt.refresh_from_db()
         return mate_attempt
 
     @staticmethod

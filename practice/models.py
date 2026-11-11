@@ -167,6 +167,7 @@ class MateAttempt(models.Model):
     prompt_version = models.CharField(max_length=20, default='v1', verbose_name="프롬프트 버전")
     error_message = models.TextField(blank=True, verbose_name="오류 메시지")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일")
+    started_at = models.DateTimeField(null=True, blank=True, verbose_name="러닝메이트 풀이 시작일")
     answered_at = models.DateTimeField(null=True, blank=True, verbose_name="풀이 완료일")
 
     class Meta:

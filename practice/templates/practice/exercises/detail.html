@@ -52,16 +52,12 @@
                 {% endif %}
 
                 {% if mate_attempt %}
-                <div id="mate-solve-status" class="alert bg-info/10 border-info/30 mb-6 py-3">
-                    <form hx-post="{% url 'practice:mate_attempt_solve' mate_attempt.pk %}"
-                          hx-trigger="load"
-                          hx-target="#mate-solve-status"
-                          hx-swap="outerHTML">
-                        {% csrf_token %}
-                        <span class="loading loading-dots loading-sm"></span>
-                        <span class="text-sm">러닝메이트도 같은 문제를 푸는 중이에요.</span>
-                    </form>
-                </div>
+                {# 시작 POST와 상태 조회 영역을 분리해 늦은 POST 응답이 화면을 덮어쓰지 않게 한다. #}
+                <form hx-post="{% url 'practice:mate_attempt_solve' mate_attempt.pk %}"
+                      hx-trigger="load" hx-swap="none">
+                    {% csrf_token %}
+                </form>
+                {% include 'practice/partials/mate_solve_status.html' %}
                 {% endif %}
 
                 <div id="steps-container">
