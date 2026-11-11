@@ -5,7 +5,7 @@ import textwrap
 from dataclasses import asdict
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from groq import Groq
@@ -13,7 +13,7 @@ from pgvector.django import CosineDistance
 
 from search.models import LearningLog
 
-from ..models import BKTObservation, Concept, ExerciseAttempt, MateAttempt
+from ..models import BKTObservation, Concept, Exercise, ExerciseAttempt, MateAttempt
 from .bkt_math import DEFAULT_PARAMETERS, MODEL_VERSION
 from .bkt_service import BKTService
 from .bkt_lock import pending_concept_ids
@@ -41,11 +41,38 @@ class LearningMateService:
     MAX_STEP_PROBABILITY = 0.95
     STATE_TIMEOUT_SECONDS = 120
     LLM_TIMEOUT_SECONDS = 30
+    REUSE_SECONDS = 3600
 
     def __init__(self, client=None):
         self.client = client or Groq(
             api_key=settings.GROQ_API_KEY, timeout=self.LLM_TIMEOUT_SECONDS, max_retries=0,
         )
+
+    @classmethod
+    @transaction.atomic
+    def get_or_create_attempt(cls, exercise):
+        """미제출 대결을 1시간 재사용한다. LLM 호출은 이 트랜잭션 밖에서 한다."""
+        # 대결이 없는 경우에도 같은 문제의 동시 페이지 진입을 직렬화한다.
+        Exercise.objects.select_for_update().get(pk=exercise.pk)
+        cutoff = timezone.now() - timezone.timedelta(seconds=cls.REUSE_SECONDS)
+        # 제출은 대결 → 문제 순으로 잠근다. 이미 잠긴 대결은 기다리지 않아 역순 교착을 피한다.
+        candidates = list(MateAttempt.objects.select_for_update(skip_locked=True).filter(
+            exercise=exercise, user_attempt__isnull=True,
+            status__in=['pending', 'solving', 'ready'],
+        ).order_by('-created_at', '-pk'))
+        expired_ids = [
+            mate.pk for mate in candidates
+            if mate.created_at <= cutoff and mate.status in ['pending', 'ready']
+        ]
+        if expired_ids:
+            MateAttempt.objects.filter(
+                pk__in=expired_ids, user_attempt__isnull=True,
+                status__in=['pending', 'ready'], created_at__lte=cutoff,
+            ).delete()
+        for mate in candidates:
+            if mate.created_at > cutoff:
+                return mate
+        return MateAttempt.objects.create(exercise=exercise)
 
     @classmethod
     def refresh_status(cls, mate_attempt):

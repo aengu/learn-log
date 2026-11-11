@@ -3,8 +3,8 @@ import random
 from django.shortcuts import get_object_or_404, render
 from django.views import View
 
-from .models import Exercise, MateAttempt
-from .services import ExerciseService
+from .models import Exercise
+from .services import ExerciseService, LearningMateService
 
 
 class ExerciseListView(View):
@@ -22,7 +22,7 @@ class ExerciseDetailView(View):
         )
         mate_attempt = None
         if exercise.exercise_type == 'path_trace':
-            mate_attempt = MateAttempt.objects.create(exercise=exercise)
+            mate_attempt = LearningMateService.get_or_create_attempt(exercise)
         _shuffle_choices_for_display(exercise)
         return render(request, 'practice/exercises/detail.html', {
             'exercise': exercise,

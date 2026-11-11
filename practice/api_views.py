@@ -165,9 +165,9 @@ class MateAttemptSolveAPIView(View):
         """제출 전 상태 조회는 LLM을 호출하지 않고 만료 여부만 확인한다."""
         try:
             mate_attempt = MateAttempt.objects.get(pk=pk)
+            LearningMateService.refresh_status(mate_attempt)
         except MateAttempt.DoesNotExist:
             return HttpResponse('<div class="text-sm text-warning">러닝메이트 기록을 찾을 수 없어요.</div>')
-        LearningMateService.refresh_status(mate_attempt)
         return render(request, 'practice/partials/mate_solve_status.html', {'mate_attempt': mate_attempt})
 
     def post(self, request, pk):
@@ -175,12 +175,12 @@ class MateAttemptSolveAPIView(View):
             mate_attempt = MateAttempt.objects.select_related(
                 'exercise', 'exercise__learning_log'
             ).get(pk=pk)
+            mate_attempt = LearningMateService().solve_attempt(mate_attempt)
         except MateAttempt.DoesNotExist:
             return HttpResponse(
                 '<div class="text-sm text-warning">러닝메이트 풀이를 시작하지 못했어요.</div>'
             )
 
-        mate_attempt = LearningMateService().solve_attempt(mate_attempt)
         return render(request, 'practice/partials/mate_solve_status.html', {
             'mate_attempt': mate_attempt,
         })
@@ -194,11 +194,11 @@ class MateAttemptResultAPIView(View):
             mate_attempt = MateAttempt.objects.select_related(
                 'exercise', 'user_attempt'
             ).get(pk=pk)
+            LearningMateService.refresh_status(mate_attempt)
         except MateAttempt.DoesNotExist:
             return HttpResponse(
                 '<div class="alert alert-warning">러닝메이트 결과를 찾을 수 없어요.</div>'
             )
-        LearningMateService.refresh_status(mate_attempt)
         return render(request, 'practice/partials/mate_comparison.html', {
             'mate_attempt': mate_attempt,
             'mate_comparison_rows': LearningMateService.comparison_rows(mate_attempt),

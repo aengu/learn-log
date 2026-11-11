@@ -53,10 +53,12 @@
 
                 {% if mate_attempt %}
                 {# 시작 POST와 상태 조회 영역을 분리해 늦은 POST 응답이 화면을 덮어쓰지 않게 한다. #}
+                {% if mate_attempt.status == 'pending' %}
                 <form hx-post="{% url 'practice:mate_attempt_solve' mate_attempt.pk %}"
                       hx-trigger="load" hx-swap="none">
                     {% csrf_token %}
                 </form>
+                {% endif %}
                 {% include 'practice/partials/mate_solve_status.html' %}
                 {% endif %}
 
