@@ -1,0 +1,50 @@
+name: Rotate Render DB
+
+on:
+  schedule:
+    # 매주 일요일 16:00 UTC (KST 월요일 01:00)
+    - cron: '0 16 * * 0'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: render-db-rotation
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download latest rotation backup for recovery
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROTATION_DIR: rotation_backup
+        run: python -m ops.render_db_rotation.download_latest_rotation_backup
+
+      - name: Check expiry and rotate when needed
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
+          ROTATION_THRESHOLD_DAYS: '14'
+          ROTATION_DIR: rotation_backup
+        run: python -m ops.render_db_rotation.scheduled_rotation
+
+      - name: Preserve rotation backup and manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-rotation-backup
+          path: rotation_backup/
+          if-no-files-found: ignore
+          retention-days: 90

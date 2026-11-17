@@ -1,0 +1,37 @@
+name: Render DB Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      database_name:
+        description: Render PostgreSQL name
+        required: true
+        default: learn-log
+      web_service_name:
+        description: Render web service name
+        required: true
+        default: learn-log
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Discover Render resources without changing them
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
+          RENDER_DATABASE_NAME: ${{ inputs.database_name }}
+          RENDER_WEB_SERVICE_NAME: ${{ inputs.web_service_name }}
+          ROTATION_THRESHOLD_DAYS: '14'
+        run: python -m ops.render_db_rotation.dry_run

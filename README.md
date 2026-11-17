@@ -130,6 +130,8 @@ docker compose exec web python manage.py dbpull   # Render → 로컬 DB 동기�
 
 `.env`에 `GROQ_API_KEY` · `MISTRAL_API_KEY` · `TAVILY_API_KEY` · `DATABASE_URL` 필요.
 
+Render Free PostgreSQL의 주기적인 백업·교체·장애 복구 방법은 [Render DB 자동 교체 운영 가이드](docs/render-db-rotation.md)에 정리했습니다.
+
 ## 프로젝트 구조
 
 ```
