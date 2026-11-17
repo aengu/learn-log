@@ -10,6 +10,9 @@ pytest.xml
 htmlcov/
 *.sqlite3
 db.sqlite3
+/backups/
+/rotation_backup/
+/learnlog_backup.dump
 
 # 로컬 작업 우선순위·후속 작업 메모
 /TODO.md
