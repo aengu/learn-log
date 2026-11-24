@@ -15,9 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  rotate:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    outputs:
+      rotation_required: ${{ steps.prepare.outputs.rotation_required }}
 
     steps:
       - uses: actions/checkout@v4
@@ -32,19 +34,73 @@ jobs:
           ROTATION_DIR: rotation_backup
         run: python -m ops.render_db_rotation.download_latest_rotation_backup
 
-      - name: Check expiry and rotate when needed
+      - name: Check expiry and prepare backup
+        id: prepare
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
           ROTATION_THRESHOLD_DAYS: '14'
           ROTATION_DIR: rotation_backup
-        run: python -m ops.render_db_rotation.scheduled_rotation
+        run: python -m ops.render_db_rotation.scheduled_rotation prepare
 
-      - name: Preserve rotation backup and manifest
+      - name: Preserve backup before deleting the database
+        if: steps.prepare.outputs.rotation_required == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-rotation-backup-${{ github.run_id }}-${{ github.run_attempt }}-prepared
+          path: rotation_backup/
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
+
+      - name: Resume the original service when preparation fails
+        if: failure()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
+          ROTATION_DIR: rotation_backup
+        run: python -m ops.render_db_rotation.scheduled_rotation abort
+
+  rotate:
+    needs: prepare
+    if: needs.prepare.outputs.rotation_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download the prepared backup
+        uses: actions/download-artifact@v4
+        with:
+          name: render-rotation-backup-${{ github.run_id }}-${{ github.run_attempt }}-prepared
+          path: rotation_backup
+
+      - name: Replace the database and deploy the service
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
+          ROTATION_DIR: rotation_backup
+        run: python -m ops.render_db_rotation.scheduled_rotation execute
+
+      - name: Preserve final recovery state
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: render-rotation-backup
+          name: render-rotation-backup-${{ github.run_id }}-${{ github.run_attempt }}-final
           path: rotation_backup/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 90
+          overwrite: true
+
+      - name: Resume only when the original database still exists
+        if: failure()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
+          ROTATION_DIR: rotation_backup
+        run: python -m ops.render_db_rotation.scheduled_rotation abort

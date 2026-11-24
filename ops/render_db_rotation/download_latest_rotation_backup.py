@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-ARTIFACT_NAME = "render-rotation-backup"
+ARTIFACT_PREFIX = "render-rotation-backup-"
 
 
 class DownloadError(RuntimeError):
@@ -60,21 +60,32 @@ def download_latest(output_dir: Path) -> bool:
     if not token or not repository:
         raise DownloadError("GITHUB_TOKEN과 GITHUB_REPOSITORY가 필요합니다.")
 
-    query = urlencode({"name": ARTIFACT_NAME, "per_page": 100})
-    data = _github_json(
-        f"https://api.github.com/repos/{repository}/actions/artifacts?{query}", token
-    )
-    artifacts = [
-        item
-        for item in data.get("artifacts", [])
-        if not item.get("expired") and item.get("name") == ARTIFACT_NAME
-    ]
+    artifacts = []
+    page = 1
+    while not artifacts:
+        query = urlencode({"per_page": 100, "page": page})
+        data = _github_json(
+            f"https://api.github.com/repos/{repository}/actions/artifacts?{query}",
+            token,
+        )
+        entries = data.get("artifacts", [])
+        artifacts = [
+            item
+            for item in entries
+            if not item.get("expired")
+            and str(item.get("name", "")).startswith(ARTIFACT_PREFIX)
+        ]
+        if len(entries) < 100:
+            break
+        page += 1
     if not artifacts:
         print("이전 회전 백업 Artifact가 없습니다.")
         return False
 
-    latest = max(artifacts, key=lambda item: item.get("created_at", ""))
+    latest = max(artifacts, key=lambda item: int(item.get("id", 0)))
     output_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("learnlog.dump", "manifest.json"):
+        (output_dir / filename).unlink(missing_ok=True)
     with tempfile.TemporaryDirectory() as temp_dir:
         archive = Path(temp_dir) / "artifact.zip"
         _download(latest["archive_download_url"], token, archive)
@@ -82,7 +93,9 @@ def download_latest(output_dir: Path) -> bool:
             for member in zipped.infolist():
                 target = (output_dir / member.filename).resolve()
                 if not target.is_relative_to(output_dir.resolve()):
-                    raise DownloadError("안전하지 않은 Artifact 경로가 포함돼 있습니다.")
+                    raise DownloadError(
+                        "안전하지 않은 Artifact 경로가 포함돼 있습니다."
+                    )
             zipped.extractall(output_dir)
     print(f"이전 회전 백업 Artifact 다운로드 완료: {latest['id']}")
     return True

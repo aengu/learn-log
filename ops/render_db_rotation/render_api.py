@@ -32,10 +32,14 @@ class RenderApiClient:
             raise RenderApiError("PostgreSQL 조회 응답 형식이 올바르지 않습니다.")
         return result
 
+    def get_service(self, service_id: str) -> dict[str, Any]:
+        result = self._request_json("GET", f"/services/{service_id}")
+        if not isinstance(result, dict):
+            raise RenderApiError("서비스 조회 응답 형식이 올바르지 않습니다.")
+        return result
+
     def get_postgres_connection_info(self, postgres_id: str) -> dict[str, Any]:
-        result = self._request_json(
-            "GET", f"/postgres/{postgres_id}/connection-info"
-        )
+        result = self._request_json("GET", f"/postgres/{postgres_id}/connection-info")
         if not isinstance(result, dict):
             raise RenderApiError("PostgreSQL 접속정보 응답 형식이 올바르지 않습니다.")
         return result
@@ -49,9 +53,13 @@ class RenderApiClient:
     def delete_postgres(self, postgres_id: str) -> None:
         self._request_json("DELETE", f"/postgres/{postgres_id}")
 
-    def update_service_env_var(
-        self, service_id: str, key: str, value: str
-    ) -> None:
+    def suspend_service(self, service_id: str) -> None:
+        self._request_json("POST", f"/services/{service_id}/suspend")
+
+    def resume_service(self, service_id: str) -> None:
+        self._request_json("POST", f"/services/{service_id}/resume")
+
+    def update_service_env_var(self, service_id: str, key: str, value: str) -> None:
         self._request_json(
             "PUT",
             f"/services/{service_id}/env-vars/{key}",
@@ -150,9 +158,10 @@ class RenderApiClient:
 
         try:
             with urlopen(request, timeout=self._timeout) as response:  # noqa: S310
-                if response.status == 204:
+                payload = response.read()
+                if not payload:
                     return None
-                return json.load(response)
+                return json.loads(payload)
         except HTTPError as error:
             raise RenderApiError(
                 f"Render API 요청이 실패했습니다. HTTP {error.code}"
